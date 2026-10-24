@@ -1,0 +1,23 @@
+{
+  "name": "oceanhud",
+  "private": true,
+  "description": "Ocean Hub v18 — Ocean Liquid Glass UI, fail-closed payment configuration, HMAC key indexing and encrypted key/backup storage",
+  "devDependencies": {
+    "wrangler": "^4.146.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.jsonc --port 8787",
+    "dev:lock": "wrangler dev --config wrangler.test_v18.jsonc --port 8787",
+    "security:check": "node security_checks_v18.mjs",
+    "deploy:production": "node preflight_deploy_v18.mjs production && wrangler deploy --config wrangler.production_v18.jsonc",
+    "test:email-flow": "node email_verification_flow_test.mjs",
+    "test:keys-at-rest": "node key_at_rest_test_v18.mjs",
+    "test": "npm run security:check && npm run test:email-flow && npm run test:keys-at-rest && npm run test:key-index-routes && npm run test:backup-migration-tools && npm run test:ui-theme && npm run test:paypal-mode",
+    "test:key-index-routes": "node key_index_route_test_v18.mjs",
+    "test:backup-migration-tools": "node backup_migration_tool_test_v18.mjs",
+    "deploy:staging": "node preflight_deploy_v18.mjs staging && wrangler deploy --config wrangler.staging.jsonc",
+    "test:ui-theme": "node ui_theme_test_v18.mjs",
+    "test:paypal-mode": "node paypal_mode_test_v18.mjs"
+  },
+  "type": "module"
+}

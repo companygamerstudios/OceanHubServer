@@ -1,0 +1,60 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "oceanhud",
+  "main": "OceanHub_SECURITY_PATCHED_FINAL_v18.js",
+  "compatibility_date": "2026-09-27",
+  "vars": {
+    "BASE_URL": "https://oceanhud.yoelenmanuelzorrilla.workers.dev",
+    "PAYPAL_MODE": "live",
+    "ADMIN_REQUIRE_2FA": "true",
+    "SENDER_NAME": "Ocean Hub",
+    "GEMINI_MODEL": "gemini-2.5-flash",
+    "OPENROUTER_MODEL": "openrouter/free",
+    "GEMINI_IMAGE_MODEL": "gemini-2.0-flash-preview-image-generation",
+    "AF_EXTRA_MODELS": "[]"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "STATS",
+      "id": "1cf0ffb0625b4852820af0696d71d6c5"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "KV_LOCKER",
+        "class_name": "KVLocker"
+      }
+    ]
+  },
+  "exports": {
+    "KVLocker": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "REPLACE_WITH_EXISTING_PRODUCTION_R2_BUCKET"
+    }
+  ],
+  "keep_vars": true,
+  "secrets": {
+    "required": [
+      "DYNAMIC_KEY_ENCRYPTION_SECRET",
+      "DYNAMIC_KEY_INDEX_SECRET",
+      "BACKUP_ENCRYPTION_SECRET",
+      "ADMIN_SECOND_PIN",
+      "TOTP_SECRET",
+      "HMAC_SECRET_CURRENT",
+      "PAYPAL_SECRET",
+      "PAYPAL_WEBHOOK_ID",
+      "BREVO_API_KEY",
+      "GEMINI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "GOOGLE_CLIENT_SECRET",
+      "DISCORD_CLIENT_SECRET"
+    ]
+  }
+}
