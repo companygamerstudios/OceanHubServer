@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "oceanhub-local",
+  "main": "OceanHub_SECURITY_PATCHED_FINAL_v18.js",
+  "compatibility_date": "2026-09-27",
+  "vars": {
+    "BASE_URL": "http://127.0.0.1:8787",
+    "PAYPAL_MODE": "sandbox",
+    "ADMIN_REQUIRE_2FA": "true",
+    "SENDER_NAME": "Ocean Hub Local",
+    "GEMINI_MODEL": "gemini-2.5-flash",
+    "OPENROUTER_MODEL": "openrouter/free",
+    "GEMINI_IMAGE_MODEL": "gemini-2.0-flash-preview-image-generation",
+    "AF_EXTRA_MODELS": "[]"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "STATS",
+      "id": "11111111111111111111111111111111"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "KV_LOCKER",
+        "class_name": "KVLocker"
+      }
+    ]
+  },
+  "exports": {
+    "KVLocker": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

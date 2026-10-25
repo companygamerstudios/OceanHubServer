@@ -1,0 +1,29 @@
+name: Ocean Hub security and local smoke tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+
+jobs:
+  test:
+    name: Unit and local configuration checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install test/runtime dependency
+        run: npm install --no-audit --no-fund
+
+      - name: Check syntax and security contracts
+        run: npm test
