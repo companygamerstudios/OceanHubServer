@@ -16,6 +16,7 @@ assert.notEqual(encrypted1.ciphertext, plaintext, 'El texto plano no debe aparec
 assert.equal(await decryptAtRestValue(env, encrypted1), plaintext, 'Debe recuperar el texto original con el secreto correcto');
 await assert.rejects(
   decryptAtRestValue({ ...env, DYNAMIC_KEY_ENCRYPTION_SECRET: 'c'.repeat(64) }, encrypted1),
+  undefined,
   'Un secreto distinto no debe descifrar el contenido'
 );
 await assert.rejects(
