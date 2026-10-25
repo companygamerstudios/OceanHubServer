@@ -22,11 +22,13 @@ test('local development uses a separate Worker and PayPal sandbox', () => {
   assert.notEqual(local.vars.BASE_URL, production.vars.BASE_URL);
 });
 
-test('production config declares required Worker secrets using Wrangler secrets.required', () => {
+test('production config declares required Worker secrets without requiring inactive external-backup encryption', () => {
   assert.equal(production.name, 'oceanhud');
   assert.equal(production.vars.PAYPAL_MODE, 'live');
   assert.ok(Array.isArray(production.secrets?.required));
   assert.ok(production.secrets.required.includes('STABLE_HORDE_API_KEY'));
+  assert.equal(production.secrets.required.includes('BACKUP_ENCRYPTION_SECRET'), false);
+  assert.match(source, /BACKUP_DISABLED_NO_EXTERNAL_STORAGE/);
 });
 
 test('sensitive SSE route is covered by the admin gate', () => {
