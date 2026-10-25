@@ -40,15 +40,9 @@ if (errors.length) {
 }
 
 // Deployment is intentionally gated on the critical secret names existing in Cloudflare now.
-let requiredSecrets;
-try {
-  const inventory = JSON.parse(readFileSync(resolve('required-secrets.production.json'), 'utf8'));
-  requiredSecrets = Array.isArray(inventory.required) ? inventory.required : [];
-  if (!requiredSecrets.length || requiredSecrets.some(name => typeof name !== 'string' || !/^[A-Z][A-Z0-9_]+$/.test(name))) {
-    throw new Error('El inventario de secretos está vacío o contiene nombres inválidos.');
-  }
-} catch (error) {
-  console.error(`No se pudo cargar required-secrets.production.json: ${error.message}`);
+const requiredSecrets = Array.isArray(config.secrets?.required) ? config.secrets.required : [];
+if (!requiredSecrets.length || requiredSecrets.some(name => typeof name !== 'string' || !/^[A-Z][A-Z0-9_]+$/.test(name))) {
+  console.error('El inventario secrets.required de Wrangler está vacío o contiene nombres inválidos.');
   process.exit(2);
 }
 const list = spawnSync('npx', ['wrangler', 'secret', 'list', '--config', configPath, '--format', 'json'], {
