@@ -57,6 +57,10 @@ test('webhook test endpoint is disabled unless explicitly enabled', () => {
   assert.match(source, /Endpoint de prueba desactivado/);
 });
 
+test('alert text redacts embedded email addresses', () => {
+  assert.ok(source.includes('email => maskAlertValue(email)'));
+});
+
 test('uploads enforce size and MIME controls', () => {
   assert.match(source, /El CSV supera el límite de 2 MB/);
   assert.match(source, /10 000 líneas/);
