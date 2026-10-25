@@ -26,4 +26,4 @@ assert.ok(source.includes('await blockKey(env, key)'), 'La reutilización de una
 assert.ok(source.includes('bindings[keyHash] && !bindings[keyHash].ips.includes(ip)'), 'El vínculo IP debe detectar una IP no asociada');
 assert.ok(source.includes('if (isBlocked) return jsonResponse'), 'Las claves bloqueadas deben rechazarse');
 
-console.log('key_index_route_test_v18: 10 comprobaciones superadas (HMAC real + contratos de ruta).');
+console.log('key_index_route_test_v18: 13 comprobaciones superadas (HMAC real + contratos de ruta).');
