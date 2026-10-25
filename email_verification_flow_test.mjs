@@ -14,7 +14,7 @@ assert.match(handler, /email_verify_current_\$\{email\}/, 'Solo se debe aceptar 
 assert.match(handler, /checkActionRateLimit\(env, 'email-verify'/, 'La finalización del flujo debe limitar intentos');
 assert.match(handler, /withKVLock\(env, `email-verify:\$\{email\}`/, 'La consumición del token debe estar bloqueada frente a concurrencia');
 assert.match(handler, /password !== password2/, 'Debe comprobar que ambas contraseñas coincidan');
-assert.match(handler, /await env\.STATS\.delete\(`email_verify_\$\{token\}`)/, 'El token debe borrarse cuando se consume');
+assert.ok(handler.includes('await env.STATS.delete(`email_verify_${token}`)'), 'El token debe borrarse cuando se consume');
 assert.ok(handler.indexOf("if (request.method === 'GET')") < handler.indexOf("if (request.method !== 'POST')"), 'GET solo presenta el formulario; no debe establecer la contraseña');
 assert.match(handler, /createUser\(env, email, displayName, password/, 'El registro pendiente crea una cuenta después del POST válido');
 assert.match(handler, /sessionVersion = Number\(user\.sessionVersion \|\| 0\) \+ 1/, 'La recuperación invalida sesiones anteriores');
