@@ -1895,32 +1895,7 @@ async function triggerWebhooks(env, email, event, data) {
 }
 
 // ==================================================
-// [ BACKUP AUTOMÁTICO ]
-// ==================================================
-export async function backupKV(env) {
-    if (!env.R2 || typeof env.R2.put !== 'function') throw new Error('R2 no está configurado para backups');
-    // Validate the distinct backup secret before enumerating or creating a snapshot.
-    await getBackupCryptoKey(env);
-    const all = {};
-    let cursor;
-    do {
-        const list = await env.STATS.list({ cursor });
-        for (const key of list.keys) {
-            const value = await env.STATS.get(key.name);
-            all[key.name] = value;
-        }
-        cursor = list.cursor;
-    } while (cursor);
-    const serialized = JSON.stringify(all);
-    const encrypted = await encryptBackupPayload(env, serialized);
-    const objectKey = `backup_v18_${Date.now()}.json.enc`;
-    await env.R2.put(objectKey, encrypted, {
-        httpMetadata: { contentType: 'application/octet-stream', cacheControl: 'private, no-store' },
-        customMetadata: { format: 'OceanHubEncryptedBackup', version: '1', algorithm: 'AES-256-GCM' }
-    });
-    // Return only backup metadata; never return the snapshot to a caller.
-    return { object_key: objectKey, key_count: Object.keys(all).length, encrypted: true };
-}
+// [ BACKUPS DEL SERVIDOR DESACTIVADOS: SIN ALMACENAMIENTO EXTERNO ]
 
 // ==================================================
 // [ RANKING ]
@@ -2812,7 +2787,7 @@ async function handleMigrateKeyIndexHmac(env, request) {
             legacy_dynamic_binding_indexes_remaining: legacyBindingsRemaining,
             key_bindings_entries: bindingKeys,
             stats_usage_entries: statsKeys,
-            note: 'Conserva los tres secretos; DYNAMIC_KEY_INDEX_SECRET debe permanecer estable. Los backups históricos de R2 requieren migración/eliminación por separado.'
+            note: 'Conserva los tres secretos; DYNAMIC_KEY_INDEX_SECRET debe permanecer estable. Las copias antiguas no se migran ni se eliminan automáticamente.'
         };
         await logAdminAction(env, 'migrate_key_index_hmac', '', ip, response);
         return jsonResponse(response);
@@ -2908,7 +2883,7 @@ async function handleEncryptKeysAtRest(env, request) {
             admin_log_records_redacted: adminLogs.migrated,
             user_log_records_redacted: userLogs.migrated,
             legacy_log_migration_supported: adminLogs.supported && userLogs.supported,
-            note: 'Revisa el resultado y conserva una copia segura del secreto; los backups R2 antiguos requieren tratamiento separado.'
+            note: 'Revisa el resultado y conserva una copia segura del secreto; las copias antiguas no se migran automáticamente.'
         };
         await logAdminAction(env, 'encrypt_keys_at_rest', '', ip, result);
         return jsonResponse(result);
@@ -7414,12 +7389,7 @@ async function handleAdminRoute(env, url, headers, request) {
             }
 
             function doBackup() {
-                if (confirm('¿Realizar backup del KV? Esto puede tomar unos segundos.')) {
-                    fetch('/admin/backup', { method: 'POST' })
-                    .then(res => res.json())
-                    .then(data => alert(data.message))
-                    .catch(err => alert('Error: '+err));
-                }
+                alert('Las copias de seguridad del servidor están desactivadas en esta versión sin almacenamiento externo. No se ha creado ni guardado ninguna copia.');
             }
 
             const hourlyLabels = ${JSON.stringify(hourlyLabels)};
@@ -7598,14 +7568,14 @@ async function getAllUsers(env) {
 }
 
 async function handleBackup(env, request) {
+    if (!request || request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
-    if (!env.R2) return jsonResponse({ error: 'R2 no está configurado' }, 503);
-    if (String(env.BACKUP_ENCRYPTION_SECRET || '').length < 32) return jsonResponse({ error: 'BACKUP_ENCRYPTION_SECRET no está configurado' }, 503);
-    const backup = await backupKV(env);
-    return jsonResponse({ message: 'Backup cifrado realizado con éxito', keys: backup.key_count, encrypted: true, object_key: backup.object_key });
+    return jsonResponse({
+        error: 'Las copias de seguridad del servidor están desactivadas en esta versión porque no usa almacenamiento externo. Los datos activos permanecen en STATS; no ejecutes migraciones destructivas sin una copia segura independiente.',
+        code: 'BACKUP_DISABLED_NO_EXTERNAL_STORAGE'
+    }, 410);
 }
-
 async function handleUploadKeys(env, request) {
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
@@ -8459,17 +8429,10 @@ async function handleCronJobs(env, request) {
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
     await updateLeaderboard(env);
-    if (!env.R2) {
-        return jsonResponse({
-            error: 'Ranking actualizado, pero el backup no se guardó: falta configurar el binding R2.',
-            code: 'R2_NOT_CONFIGURED'
-        }, 503);
-    }
-    if (String(env.BACKUP_ENCRYPTION_SECRET || '').length < 32) {
-        return jsonResponse({ error: 'Falta BACKUP_ENCRYPTION_SECRET; no se creó ningún backup.', code: 'BACKUP_SECRET_NOT_CONFIGURED' }, 503);
-    }
-    const backup = await backupKV(env);
-    return jsonResponse({ message: 'Ranking actualizado y backup cifrado guardado', object_key: backup.object_key, encrypted: true });
+    return jsonResponse({
+        message: 'Ranking actualizado. La creación automática de backups está desactivada porque esta versión no utiliza almacenamiento externo.',
+        backup: 'disabled-no-external-storage'
+    });
 }
 
 // ==================================================

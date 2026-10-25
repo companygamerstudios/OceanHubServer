@@ -9,7 +9,7 @@ if (!['production', 'staging'].includes(target)) {
 }
 const configPath = target === 'production' ? 'wrangler.production_v18.jsonc' : 'wrangler.staging.jsonc';
 if (!existsSync(configPath)) {
-  console.error(`Falta ${configPath}. Para staging, copia wrangler.staging.template_v18.jsonc y sustituye los ID de KV/R2 y la URL.`);
+  console.error(`Falta ${configPath}. Para staging, copia wrangler.staging.template_v18.jsonc y sustituye el ID de KV y la URL.`);
   process.exit(2);
 }
 let config;
@@ -23,10 +23,6 @@ if (config.vars?.PAYPAL_MODE !== expectedMode) errors.push(`PAYPAL_MODE debe ser
 if (!config.kv_namespaces?.some(item => item.binding === 'STATS' && /^[a-f0-9]{32}$/i.test(item.id || '') && !/^0+$/.test(item.id))) {
   errors.push('STATS necesita un ID de namespace KV real de 32 caracteres hexadecimales, no un marcador ni el ID local ficticio.');
 }
-const r2 = config.r2_buckets?.find(item => item.binding === 'R2');
-if (!r2 || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(r2.bucket_name || '') || String(r2.bucket_name).includes('replace')) {
-  errors.push('R2 debe enlazar un bucket existente cuyo nombre real sustituya al marcador de plantilla.');
-}
 if (target === 'production') {
   if (config.name !== 'oceanhud') errors.push('El nombre de producción no coincide con oceanhud; no despliego una configuración con otro nombre accidental.');
   if (config.vars?.BASE_URL !== 'https://oceanhud.yoelenmanuelzorrilla.workers.dev') errors.push('La BASE_URL de producción cambió; verifica el hostname antes de desplegar.');
@@ -37,8 +33,6 @@ if (target === 'production') {
   const prodKV = prod.kv_namespaces?.find(item => item.binding === 'STATS')?.id;
   const stageKV = config.kv_namespaces?.find(item => item.binding === 'STATS')?.id;
   if (prodKV && stageKV === prodKV) errors.push('Staging comparte el namespace STATS de producción; crea uno separado.');
-  const prodR2 = prod.r2_buckets?.find(item => item.binding === 'R2')?.bucket_name;
-  if (prodR2 && r2?.bucket_name === prodR2) errors.push('Staging comparte el bucket R2 de producción; crea uno separado.');
 }
 if (errors.length) {
   console.error(`\n⛔ Preflight ${target}: BLOQUEADO\n` + errors.map(e => `- ${e}`).join('\n'));
@@ -49,7 +43,6 @@ if (errors.length) {
 const requiredSecrets = [
   'DYNAMIC_KEY_ENCRYPTION_SECRET',
   'DYNAMIC_KEY_INDEX_SECRET',
-  'BACKUP_ENCRYPTION_SECRET',
   'ADMIN_SECOND_PIN',
   'TOTP_SECRET',
   'HMAC_SECRET_CURRENT',
