@@ -17,11 +17,19 @@ Local development uses `wrangler.local.jsonc` and PayPal sandbox mode. It is int
 
 ## Production deployment
 
-Production deployment is only available through:
+Production publishing is handled automatically by the GitHub Actions workflow **Implementar comando**.
 
-```sh
-npm run deploy:production
-```
+- Every commit pushed to `main` starts the workflow.
+- GitHub checks JavaScript syntax, runs the security smoke tests, validates the production package, and runs the preflight.
+- Only if all checks pass does the workflow publish the `oceanhud` Worker using `wrangler.production_v18.jsonc`.
+- You can also start it from GitHub: **Actions → Implementar comando → Run workflow**.
+
+You no longer need to run `npm run deploy:production` from your laptop for routine releases. That script remains as a manual fallback for an authorized local operator.
+
+Before this automation can publish, add two repository Actions secrets in **Settings → Secrets and variables → Actions**:
+`CLOUDFLARE_API_TOKEN` (a Cloudflare API token scoped to the required Workers deployment permissions) and `CLOUDFLARE_ACCOUNT_ID`. Never put either value in source files or chat. The workflow stops before deployment if they are missing or if the production preflight fails.
+
+This workflow does not deploy code from feature branches or pull requests. Merge the change into `main`; it then runs the checks and deployment automatically.
 
 This runs the preflight and then deploys with `wrangler.production_v18.jsonc`. The preflight checks the required secret names in Cloudflare using Wrangler's supported `secrets.required` configuration field; it cannot read secret values and therefore cannot certify their length, uniqueness or correctness. Those checks require secure runtime verification or a manual secret manager review. This field contains names only; never put secret values in this repository. See the [official Wrangler configuration documentation](https://developers.cloudflare.com/workers/wrangler/configuration/).
 
