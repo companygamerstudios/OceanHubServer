@@ -1,10 +1,10 @@
-// =======================================================
+// ==========================================================
 // 🌊 OCEAN HUB V29.1 — SOCIAL + editar perfil (bio/avatar) + notificaciones
 // Añadido: recuperación de contraseña por email, aviso de compra,
 // historial de inicios de sesión, páginas legales y banner de cookies.
 // FIX: BASE_URL, SENDER_EMAIL y SENDER_NAME ahora desde env.
 // AÑADIDO: Pantalla de bienvenida con gate de autenticación completo
-// ========================================================
+// ===========================================================
 
 // ==================== CONFIGURACIÓN ====================
 const RATE_LIMIT_MAX = 30;
