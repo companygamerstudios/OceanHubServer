@@ -12,6 +12,7 @@
     "OPENROUTER_MODEL": "openrouter/free",
     "GEMINI_IMAGE_MODEL": "gemini-2.0-flash-preview-image-generation",
     "AF_EXTRA_MODELS": "[]"
+    "AF_IMAGE_PROVIDER": "stablehorde"
   },
   "kv_namespaces": [
     {
