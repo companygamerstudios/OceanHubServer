@@ -393,6 +393,8 @@ async function sendAlert(env, message, severity = 'info', key = null, ip = null)
     let safeMessage = String(message ?? '');
     if (key) safeMessage = safeMessage.split(String(key)).join(maskAlertValue(key));
     if (ip) safeMessage = safeMessage.split(String(ip)).join(maskAlertValue(ip));
+    // Redact any email address embedded in alert text as well as separately supplied values.
+    safeMessage = safeMessage.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, email => maskAlertValue(email));
     const fullMsg = `🚨 [${severity.toUpperCase()}] ${safeMessage}${key ? ` | Clave: ${maskAlertValue(key)}` : ''}${ip ? ` | IP: ${maskAlertValue(ip)}` : ''}`;
     await sendDiscordWebhook(env, fullMsg);
     await sendTelegramMessage(env, fullMsg);
