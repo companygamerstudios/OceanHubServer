@@ -393,6 +393,8 @@ async function sendAlert(env, message, severity = 'info', key = null, ip = null)
     let safeMessage = String(message ?? '');
     if (key) safeMessage = safeMessage.split(String(key)).join(maskAlertValue(key));
     if (ip) safeMessage = safeMessage.split(String(ip)).join(maskAlertValue(ip));
+    // Redact any email address embedded in alert text as well as separately supplied values.
+    safeMessage = safeMessage.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, email => maskAlertValue(email));
     const fullMsg = `🚨 [${severity.toUpperCase()}] ${safeMessage}${key ? ` | Clave: ${maskAlertValue(key)}` : ''}${ip ? ` | IP: ${maskAlertValue(ip)}` : ''}`;
     await sendDiscordWebhook(env, fullMsg);
     await sendTelegramMessage(env, fullMsg);
@@ -400,7 +402,7 @@ async function sendAlert(env, message, severity = 'info', key = null, ip = null)
 
 async function logAdminAction(env, action, key, ip, details = {}) {
     const today = new Date().toISOString().slice(0, 10);
-    const logKey = `admin_log_${today}_${Date.now()}_${generateRandomHex(4)}`;
+    const logKey = `admin_log_${today}_${Date.now()}_${generateRandomHex(16)}`;
     const entry = {
         timestamp: new Date().toISOString(), action,
         key: typeof key === 'string' ? maskStoredKey(key) : null,
@@ -2001,7 +2003,8 @@ async function handlePrivacidad(env) {
     <p>Conservamos tus datos mientras tu cuenta esté activa. Si la eliminas, tus datos personales se borrarán en un plazo máximo de 30 días, excepto aquellos que debamos conservar por obligación legal.</p>
 
     <h2>6. Destinatarios</h2>
-    <p>Tus datos pueden ser comunicados a: proveedores de pago (PayPal), proveedores de correo electrónico (Brevo), proveedores de infraestructura (Cloudflare), y autoridades competentes cuando la ley lo exija.</p>
+    <p>Tus datos pueden ser tratados por proveedores de pago (PayPal), correo electrónico (Brevo), infraestructura (Cloudflare), y autoridades competentes cuando la ley lo exija.</p>
+    <p><strong>Funciones de inteligencia artificial:</strong> cuando usas Air Flow, el texto de tus prompts, el contexto necesario de la conversación y el contenido de archivos o imágenes que envíes pueden transmitirse, según la función y configuración activa, a Google Gemini, OpenRouter o Stable Horde para generar una respuesta o imagen. OpenRouter puede enrutar solicitudes al modelo elegido. No envíes contraseñas, claves de acceso, datos de pago ni información confidencial. Consulta también las políticas de cada proveedor de IA para conocer sus prácticas de tratamiento y conservación.</p>
 
     <h2>7. Tus derechos</h2>
     <p>Puedes ejercer los derechos de acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a nuestro correo de contacto. También tienes derecho a presentar una reclamación ante la autoridad de protección de datos de tu país.</p>
@@ -2735,18 +2738,27 @@ async function handleMigrateKeyIndexHmac(env, request) {
     try { payload = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const ip = getClientIP(request);
     const failKey = `pin_fail_${ip}`;
+    const accountFailKey = `pin_fail_account_${await hashKey(String(auth.user.email || '').toLowerCase())}`;
     const failed = await env.STATS.get(failKey, 'json');
-    if (failed && failed.count >= PIN_BRUTE_LIMIT && Math.floor(Date.now() / 1000) - failed.first_fail < PIN_BRUTE_WINDOW) {
-        return jsonResponse({ error: 'Demasiados intentos de PIN. Espera 10 minutos.' }, 429);
+    const accountFailed = await env.STATS.get(accountFailKey, 'json');
+    const now = Math.floor(Date.now() / 1000);
+    if ((failed && failed.count >= PIN_BRUTE_LIMIT && now - failed.first_fail < PIN_BRUTE_WINDOW) ||
+        (accountFailed && accountFailed.count >= PIN_BRUTE_LIMIT && now - accountFailed.first_fail < PIN_BRUTE_WINDOW)) {
+        return jsonResponse({ error: 'Demasiados intentos de PIN para esta cuenta o IP. Espera 10 minutos.' }, 429);
     }
     const pin = typeof payload?.pin === 'string' ? payload.pin : '';
     if (!env.ADMIN_SECOND_PIN || !timingSafeCompare(pin, String(env.ADMIN_SECOND_PIN))) {
-        const record = failed || { count: 0, first_fail: Math.floor(Date.now() / 1000) };
+        const failTime = Math.floor(Date.now() / 1000);
+        const record = failed && failTime - Number(failed.first_fail || 0) < PIN_BRUTE_WINDOW ? failed : { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(failKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
+        const accountRecord = accountFailed && failTime - Number(accountFailed.first_fail || 0) < PIN_BRUTE_WINDOW ? accountFailed : { count: 0, first_fail: failTime };
+        accountRecord.count++;
+        await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
     }
     await env.STATS.delete(failKey);
+    await env.STATS.delete(accountFailKey);
     try {
         await getAtRestCryptoKey(env);
         await hashDynamicKey(env, 'v18-secret-validation');
@@ -2805,18 +2817,27 @@ async function handleEncryptKeysAtRest(env, request) {
     try { payload = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const ip = getClientIP(request);
     const failKey = `pin_fail_${ip}`;
+    const accountFailKey = `pin_fail_account_${await hashKey(String(auth.user.email || '').toLowerCase())}`;
     const failed = await env.STATS.get(failKey, 'json');
-    if (failed && failed.count >= PIN_BRUTE_LIMIT && Math.floor(Date.now() / 1000) - failed.first_fail < PIN_BRUTE_WINDOW) {
-        return jsonResponse({ error: 'Demasiados intentos de PIN. Espera 10 minutos.' }, 429);
+    const accountFailed = await env.STATS.get(accountFailKey, 'json');
+    const now = Math.floor(Date.now() / 1000);
+    if ((failed && failed.count >= PIN_BRUTE_LIMIT && now - failed.first_fail < PIN_BRUTE_WINDOW) ||
+        (accountFailed && accountFailed.count >= PIN_BRUTE_LIMIT && now - accountFailed.first_fail < PIN_BRUTE_WINDOW)) {
+        return jsonResponse({ error: 'Demasiados intentos de PIN para esta cuenta o IP. Espera 10 minutos.' }, 429);
     }
     const pin = typeof payload?.pin === 'string' ? payload.pin : '';
     if (!env.ADMIN_SECOND_PIN || !timingSafeCompare(pin, String(env.ADMIN_SECOND_PIN))) {
-        const record = failed || { count: 0, first_fail: Math.floor(Date.now() / 1000) };
+        const failTime = Math.floor(Date.now() / 1000);
+        const record = failed && failTime - Number(failed.first_fail || 0) < PIN_BRUTE_WINDOW ? failed : { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(failKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
+        const accountRecord = accountFailed && failTime - Number(accountFailed.first_fail || 0) < PIN_BRUTE_WINDOW ? accountFailed : { count: 0, first_fail: failTime };
+        accountRecord.count++;
+        await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
     }
     await env.STATS.delete(failKey);
+    await env.STATS.delete(accountFailKey);
 
     try {
         await getAtRestCryptoKey(env); // fail before changing data unless the encryption secret is configured
@@ -2903,23 +2924,31 @@ async function handleAdminAction(env, url, request) {
     const ip = getClientIP(request);
 
     const pinFailKey = `pin_fail_${ip}`;
+    const accountFailKey = `pin_fail_account_${await hashKey(String(auth.user.email || '').toLowerCase())}`;
     const failRecord = await env.STATS.get(pinFailKey, 'json');
-    if (failRecord && failRecord.count >= PIN_BRUTE_LIMIT) {
-        const now = Math.floor(Date.now() / 1000);
-        if (now - failRecord.first_fail < PIN_BRUTE_WINDOW) {
-            return jsonResponse({ error: 'Demasiados intentos de PIN. Espera 10 minutos.' }, 429);
-        } else await env.STATS.delete(pinFailKey);
+    const accountFailRecord = await env.STATS.get(accountFailKey, 'json');
+    const attemptNow = Math.floor(Date.now() / 1000);
+    if ((failRecord && failRecord.count >= PIN_BRUTE_LIMIT && attemptNow - failRecord.first_fail < PIN_BRUTE_WINDOW) ||
+        (accountFailRecord && accountFailRecord.count >= PIN_BRUTE_LIMIT && attemptNow - accountFailRecord.first_fail < PIN_BRUTE_WINDOW)) {
+        return jsonResponse({ error: 'Demasiados intentos de PIN para esta cuenta o IP. Espera 10 minutos.' }, 429);
     }
+    if (failRecord && attemptNow - failRecord.first_fail >= PIN_BRUTE_WINDOW) await env.STATS.delete(pinFailKey);
+    if (accountFailRecord && attemptNow - accountFailRecord.first_fail >= PIN_BRUTE_WINDOW) await env.STATS.delete(accountFailKey);
 
     const pin = typeof payload.pin === 'string' ? payload.pin : '';
     const adminPin = env.ADMIN_SECOND_PIN;
     if (!adminPin || !timingSafeCompare(String(pin || ''), String(adminPin))) {
-        let record = failRecord || { count: 0, first_fail: Math.floor(Date.now() / 1000) };
+        const failTime = Math.floor(Date.now() / 1000);
+        let record = failRecord && failTime - Number(failRecord.first_fail || 0) < PIN_BRUTE_WINDOW ? failRecord : { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(pinFailKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
+        let accountRecord = accountFailRecord && failTime - Number(accountFailRecord.first_fail || 0) < PIN_BRUTE_WINDOW ? accountFailRecord : { count: 0, first_fail: failTime };
+        accountRecord.count++;
+        await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
     }
     await env.STATS.delete(pinFailKey);
+    await env.STATS.delete(accountFailKey);
 
     const action = typeof payload.action === 'string' ? payload.action : '';
     const key = typeof payload.key === 'string' ? payload.key.trim() : '';
@@ -3414,13 +3443,16 @@ async function handleShorten(env, request) {
     if (!longUrl) return jsonResponse({ error: 'Falta parámetro url' }, 400);
     let parsedUrl; try { parsedUrl = new URL(longUrl); } catch { return jsonResponse({ error: 'URL inválida' }, 400); }
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) return jsonResponse({ error: 'Solo se permiten URLs HTTP/HTTPS' }, 400);
-    const id = generateRandomHex(4).toLowerCase();
+    const id = generateRandomHex(16).toLowerCase();
     await env.STATS.put(`short_${id}`, longUrl, { expirationTtl: 86400 * 30 });
     const short = `${url.origin}/s/${id}`;
     return jsonResponse({ short, id, original: longUrl });
 }
 
 async function handleWebhookTest(env) {
+    if (String(env.ALLOW_WEBHOOK_TEST || '').trim().toLowerCase() !== 'true') {
+        return jsonResponse({ error: 'Endpoint de prueba desactivado.' }, 410);
+    }
     await sendAlert(env, '🧪 Mensaje de prueba desde Ocean Hub Webhook', 'test');
     return jsonResponse({ status: 'test sent' });
 }
@@ -4364,6 +4396,9 @@ const AF_MAX_MESSAGE_CHARS = 6000;
 const AF_MAX_HISTORY_MESSAGES = 16;
 const AF_MAX_HISTORY_CHARS = 28000;
 const AF_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const AF_MAX_JSON_UPLOAD_BODY_BYTES = Math.ceil(AF_MAX_UPLOAD_BYTES * 1.5 + 100_000);
+const AF_ALLOWED_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const AF_ALLOWED_FILE_MIME = new Set(['text/plain', 'text/csv', 'application/json', 'application/pdf', 'application/vnd.ms-excel', 'image/png', 'image/jpeg', 'image/webp']);
 const AF_RATE_WINDOW = 60;
 const AF_RATE_MAX = 20;
 const AF_GEMINI_MODEL_DEFAULT = 'gemini-2.5-flash';
@@ -4938,12 +4973,17 @@ async function handleAirFlowVisionV11(env, request) {
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
     if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
     if (!(await afRateLimit(env, request, auth.user.email, 'vision'))) return jsonResponse({ error: 'Límite de visión alcanzado. Espera un momento.' }, 429);
+    const declaredBodyLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredBodyLength > AF_MAX_JSON_UPLOAD_BODY_BYTES) return jsonResponse({ error: 'La solicitud de imagen supera el límite permitido de 10 MB.' }, 413);
     let body;
     try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const data = String(body?.image?.data || '');
-    const mime = String(body?.image?.mimeType || 'image/png');
+    const mime = String(body?.image?.mimeType || 'image/png').split(';')[0].trim().toLowerCase();
     const prompt = String(body?.prompt || 'Analiza esta imagen con detalle. Si contiene texto, transcríbelo y explica lo importante.').slice(0, 3000);
     if (!data) return jsonResponse({ error: 'Falta la imagen.' }, 400);
+    if (!AF_ALLOWED_IMAGE_MIME.has(mime)) return jsonResponse({ error: 'Tipo de imagen no compatible. Usa PNG, JPEG o WebP.' }, 415);
+    const declaredMime = data.match(/^data:([^;,]+);base64,/i)?.[1]?.toLowerCase();
+    if (declaredMime && declaredMime !== mime) return jsonResponse({ error: 'El tipo MIME no coincide con los datos de la imagen.' }, 415);
     let rawBytes = 0;
     try { rawBytes = Math.floor(data.replace(/^data:[^;]+;base64,/, '').length * 0.75); } catch { rawBytes = AF_MAX_UPLOAD_BYTES + 1; }
     if (rawBytes > AF_MAX_UPLOAD_BYTES) return jsonResponse({ error: 'La imagen es demasiado grande.' }, 413);
@@ -4978,18 +5018,23 @@ async function handleAirFlowFileV11(env, request) {
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
     if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
     if (!(await afRateLimit(env, request, auth.user.email, 'file'))) return jsonResponse({ error: 'Límite de archivos alcanzado. Espera un momento.' }, 429);
+    const declaredBodyLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredBodyLength > AF_MAX_JSON_UPLOAD_BODY_BYTES) return jsonResponse({ error: 'La solicitud supera el límite permitido de 10 MB.' }, 413);
     let body;
     try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const file = body?.file || {};
     const data = String(file.data || '');
-    const mime = String(file.mimeType || 'text/plain');
+    const mime = String(file.mimeType || 'text/plain').split(';')[0].trim().toLowerCase();
     const name = String(file.name || 'archivo').slice(0, 160);
     const prompt = String(body?.prompt || `Analiza el archivo ${name}. Resume su contenido, detecta puntos importantes y responde según lo solicitado.`).slice(0, 3000);
     if (!data) return jsonResponse({ error: 'Falta el archivo.' }, 400);
+    if (!AF_ALLOWED_FILE_MIME.has(mime)) return jsonResponse({ error: 'Tipo de archivo no compatible. Usa texto, CSV, JSON, PDF, PNG, JPEG o WebP.' }, 415);
+    const declaredMime = data.match(/^data:([^;,]+);base64,/i)?.[1]?.toLowerCase();
+    if (declaredMime && declaredMime !== mime) return jsonResponse({ error: 'El tipo MIME no coincide con los datos del archivo.' }, 415);
     const cleanB64 = data.replace(/^data:[^;]+;base64,/, '');
     const rawBytes = Math.floor(cleanB64.length * 0.75);
     if (rawBytes > AF_MAX_UPLOAD_BYTES) return jsonResponse({ error: 'El archivo supera el límite de 10 MB.' }, 413);
-    if (/^(text\/|application\/(json|csv))/.test(mime)) {
+    if (/^(text\/.+|application\/(json|csv|vnd\.ms-excel))$/.test(mime)) {
         try {
             const text = await afReadFileAsText(data, mime);
             if (text) {
@@ -5217,7 +5262,7 @@ async function handleAirFlowCreateImageV11(env, request) {
             if (!response.ok || !data?.id) {
                 console.error('Air Flow Stable Horde submit failed with HTTP', response.status);
                 if (response.status === 401 || response.status === 403) {
-                    return jsonResponse({ error: 'Stable Horde rechazó la clave. Comprueba STABLE_HORDE_API_KEY en Cloudflare.' }, 502);
+                    return jsonResponse({ error: `Stable Horde rechazó la solicitud (HTTP ${response.status}). Revisa la clave y los permisos de la cuenta; el rechazo no confirma por sí solo cuál es la causa.` }, 502);
                 }
                 if (response.status === 429) {
                     return jsonResponse({ error: 'Stable Horde está limitando las solicitudes. Espera y vuelve a intentarlo.' }, 429);
@@ -5786,7 +5831,7 @@ body.af-has-messages .welcome{display:none!important}
  .empty-card p{display:none}
  .suggestions{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
  .suggestion{padding:8px;font-size:10px;min-height:38px}
- .disclaimer{display:none}
+ .disclaimer{display:block;font-size:8px;line-height:1.25}
 }
 </style>
 </head>
@@ -5847,7 +5892,7 @@ body.af-has-messages .welcome{display:none!important}
             </div>
           </div>
         </div>
-        <div class="disclaimer">Air Flow puede equivocarse. Para información actual, activa Research o usa preguntas verificables. Nunca compartas claves, contraseñas o datos privados.</div>
+        <div class="disclaimer">Air Flow puede equivocarse. Tus prompts, contexto y archivos pueden enviarse a Gemini, OpenRouter o Stable Horde según la función y configuración. No compartas claves, contraseñas ni datos sensibles. Consulta la <a href="/privacidad">política de privacidad</a>.</div>
       </div>
     </section>
   </main>
@@ -6915,265 +6960,6 @@ function calcularIngresosDesdeCompras(compras) {
     return { dia: ventasDia, semana: ventasSemana, mes: ventasMes, total: totalIngresos, producto_mas_vendido: productoMasVendido, total_compras: compras.length };
 }
 
-async function handleMainRoute(env) {
-    const stats = await getStats(env) || {};
-    const dynamicKeys = await getDynamicKeys(env) || {};
-    let allKeys = [];
-    for (let k of STATIC_KEYS) {
-        const usage = stats.keys_usage?.[k.hash] || { count: 0, blocked: false };
-        allKeys.push({ key: k.key, rango: k.rango, type: k.type, expires: k.expires, maxUses: k.maxUses, uses: usage.count, blocked: usage.blocked, dynamic: false, tags: [] });
-    }
-    for (let hash in dynamicKeys) {
-        const k = dynamicKeys[hash];
-        const usage = stats.keys_usage?.[hash] || { count: 0, blocked: false };
-        allKeys.push({ key: k.key, rango: k.rango, type: k.type, expires: k.expires, maxUses: k.maxUses, uses: usage.count, blocked: usage.blocked, dynamic: true, tags: k.tags || [] });
-    }
-    const totalKeys = allKeys.length;
-    const usedKeys = allKeys.filter(k => k.uses > 0).length;
-    const blockedKeys = allKeys.filter(k => k.blocked).length;
-
-    let cardsHtml = '';
-    allKeys.forEach(k => {
-        const isBlocked = k.blocked || false;
-        const isDynamic = k.dynamic || false;
-        const maxUses = k.maxUses || Infinity;
-        const used = k.uses || 0;
-        const nearLimit = (used / maxUses) >= 0.8 && maxUses !== Infinity;
-        const statusClass = isBlocked ? 'blocked' : (nearLimit ? 'warning' : 'active');
-        const icon = isDynamic ? '🎲' : '📌';
-        cardsHtml += `
-            <div class="key-card ${statusClass}" data-key="${k.key}" data-type="${k.type}" data-status="${statusClass}">
-                <div class="card-header">
-                    <span class="key-icon">${icon}</span>
-                    <span class="key-name">${escapeHTML(k.key)}</span>
-                    <span class="key-status">${isBlocked ? '🚫' : '✅'}</span>
-                </div>
-                <div class="card-body">
-                    <span class="key-rango">${escapeHTML(k.rango)}</span>
-                    <span class="key-type">${k.type}</span>
-                    <span class="key-expires">⏳ ${escapeHTML(k.expires)}</span>
-                    <span class="key-uses">Usos: ${used}${maxUses !== Infinity ? `/${maxUses}` : ''}</span>
-                    ${k.tags.length > 0 ? `<span class="key-tags">🏷️ ${k.tags.join(', ')}</span>` : ''}
-                </div>
-                <button class="btn-info" onclick="showKeyInfo(${escapeJSAttribute(k.key)})">📋 Info</button>
-            </div>
-        `;
-    });
-
-    const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🌊 Ocean Hub - Dashboard</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: linear-gradient(145deg, #0a1a2b 0%, #1b3a5c 100%); color: #e0f0ff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; min-height: 100vh; padding: 20px; overflow-x: hidden; }
-        .ocean-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; overflow: hidden; pointer-events: none; }
-        .wave { position: absolute; width: 200%; height: 100%; background: repeating-linear-gradient(90deg, rgba(0,200,255,0.05) 0%, rgba(0,150,255,0.1) 50%, rgba(0,200,255,0.05) 100%); animation: waveMove 20s linear infinite; border-radius: 50%; }
-        .wave:nth-child(2) { animation-duration: 25s; animation-delay: -5s; opacity: 0.5; }
-        .wave:nth-child(3) { animation-duration: 30s; animation-delay: -10s; opacity: 0.3; }
-        @keyframes waveMove { 0% { transform: translateX(0) scaleY(0.1); } 50% { transform: translateX(-25%) scaleY(0.2); } 100% { transform: translateX(-50%) scaleY(0.1); } }
-        .container { max-width: 1400px; margin: 0 auto; position: relative; z-index: 1; }
-        .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; }
-        h1 { font-size: 2.8rem; text-shadow: 0 0 20px #00ccff, 0 0 40px #0088ff; }
-        .header-actions { display: flex; gap: 15px; align-items: center; }
-        .header-actions .admin-link { padding: 10px 25px; background: rgba(0,200,255,0.15); border-radius: 40px; color: #00ccff; text-decoration: none; font-weight: bold; border: 1px solid #00ccff; transition: 0.3s; }
-        .header-actions .admin-link:hover { background: #00ccff; color: #0a1a2b; }
-        .stats-bar { display: flex; flex-wrap: wrap; gap: 15px; margin: 20px 0; background: rgba(0,0,0,0.25); border-radius: 20px; padding: 20px; backdrop-filter: blur(8px); }
-        .stat-item { flex: 1; min-width: 100px; text-align: center; background: rgba(255,255,255,0.05); border-radius: 15px; padding: 12px 8px; transition: 0.3s; }
-        .stat-item:hover { background: rgba(255,255,255,0.1); }
-        .stat-item .number { font-size: 2rem; font-weight: bold; color: #00ccff; }
-        .stat-item .label { font-size: 0.85rem; opacity: 0.8; }
-        .stat-item .number.valid { color: #00cc88; }
-        .stat-item .number.invalid { color: #ff6666; }
-        .stat-item .number.blocked { color: #ffaa00; }
-        .controls { display: flex; flex-wrap: wrap; gap: 15px; margin: 20px 0; }
-        .controls input, .controls select { padding: 10px 18px; border-radius: 30px; border: none; background: rgba(255,255,255,0.08); color: white; font-size: 1rem; backdrop-filter: blur(4px); outline: 1px solid rgba(255,255,255,0.15); transition: 0.3s; }
-        .controls input:focus, .controls select:focus { outline: 1px solid #00ccff; background: rgba(255,255,255,0.15); }
-        .controls input::placeholder { color: #aac; }
-        .controls select option { background: #1b3a5c; }
-        .key-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin-top: 20px; }
-        .key-card { background: rgba(255,255,255,0.06); border-radius: 20px; padding: 20px; backdrop-filter: blur(6px); border-left: 6px solid #00ccff; transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.3s; animation: fadeIn 0.4s ease forwards; opacity: 0; transform: scale(0.96); display: flex; flex-direction: column; gap: 10px; }
-        .key-card:hover { transform: translateY(-5px) scale(1.01); box-shadow: 0 12px 35px rgba(0,200,255,0.25); }
-        .key-card.blocked { border-left-color: #ff4444; opacity: 0.7; }
-        .key-card.warning { border-left-color: #ffaa00; }
-        .key-card .card-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .key-icon { font-size: 1.6rem; }
-        .key-name { font-weight: bold; font-size: 1.1rem; flex: 1; word-break: break-all; letter-spacing: 0.3px; }
-        .key-status { font-size: 1.3rem; }
-        .card-body { display: flex; flex-wrap: wrap; gap: 8px; margin: 5px 0; font-size: 0.9rem; }
-        .card-body span { background: rgba(0,0,0,0.25); padding: 4px 12px; border-radius: 20px; display: inline-flex; align-items: center; gap: 5px; }
-        .btn-info { background: rgba(0,200,255,0.15); border: none; color: white; padding: 8px 16px; border-radius: 30px; cursor: pointer; transition: 0.3s; align-self: flex-start; font-size: 0.9rem; }
-        .btn-info:hover { background: #00ccff; color: #0a1a2b; }
-        @keyframes fadeIn { to { opacity: 1; transform: scale(1); } }
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-overlay.active { display: flex; }
-        .modal { background: #1b3a5c; border-radius: 30px; padding: 30px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.8); animation: fadeIn 0.3s ease; }
-        .modal h2 { margin-bottom: 15px; color: #00ccff; }
-        .modal .close-btn { float: right; background: none; border: none; color: white; font-size: 2rem; cursor: pointer; transition: 0.3s; }
-        .modal .close-btn:hover { color: #ff6666; }
-        .modal .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
-        .modal .history-item { background: rgba(0,0,0,0.2); margin: 5px 0; padding: 8px 12px; border-radius: 10px; font-size: 0.9rem; display: flex; justify-content: space-between; }
-        .modal .history-item.valid { border-left: 4px solid #00cc88; }
-        .modal .history-item.invalid { border-left: 4px solid #ff4444; }
-        @media (max-width: 600px) {
-            h1 { font-size: 2rem; }
-            .stat-item .number { font-size: 1.5rem; }
-            .key-grid { grid-template-columns: 1fr; }
-            .header { flex-direction: column; align-items: stretch; }
-        }
-    </style>
-</head>
-<body>
-    <div class="ocean-bg">
-        <div class="wave"></div>
-        <div class="wave"></div>
-        <div class="wave"></div>
-    </div>
-
-    <div class="container">
-        <div class="header">
-            <h1>🌊 Ocean Hub</h1>
-            <div class="header-actions">
-                <a href="/admin" class="admin-link">🔐 Administrar</a>
-            </div>
-        </div>
-
-        <div class="stats-bar">
-            <div class="stat-item"><div class="number">${stats.total_verifications || 0}</div><div class="label">Verificaciones</div></div>
-            <div class="stat-item"><div class="number valid">${stats.valid_verifications || 0}</div><div class="label">Válidas</div></div>
-            <div class="stat-item"><div class="number invalid">${stats.invalid_verifications || 0}</div><div class="label">Inválidas</div></div>
-            <div class="stat-item"><div class="number">${totalKeys}</div><div class="label">Claves totales</div></div>
-            <div class="stat-item"><div class="number">${usedKeys}</div><div class="label">Claves usadas</div></div>
-            <div class="stat-item"><div class="number blocked">${blockedKeys}</div><div class="label">Bloqueadas</div></div>
-            <div class="stat-item"><div class="number">${stats.sales?.total || 0}</div><div class="label">Ventas</div></div>
-            <div class="stat-item"><div class="number">$${stats.sales?.revenue?.toFixed(2) || '0.00'}</div><div class="label">Ingresos</div></div>
-        </div>
-
-        <div class="controls">
-            <input type="text" id="searchInput" placeholder="🔍 Buscar clave..." oninput="filterKeys()">
-            <select id="typeFilter" onchange="filterKeys()">
-                <option value="all">Todos los tipos</option>
-                <option value="gratuita">Gratuita</option>
-                <option value="premium">Premium</option>
-                <option value="vip">VIP</option>
-                <option value="staff">Staff</option>
-                <option value="prueba">Prueba</option>
-                <option value="dinamica">Dinámica</option>
-            </select>
-            <select id="statusFilter" onchange="filterKeys()">
-                <option value="all">Todos los estados</option>
-                <option value="active">Activas</option>
-                <option value="blocked">Bloqueadas</option>
-                <option value="warning">Límite cercano</option>
-            </select>
-        </div>
-
-        <div class="key-grid" id="keyGrid">
-            ${cardsHtml}
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="infoModal">
-        <div class="modal">
-            <button class="close-btn" onclick="closeModal()">&times;</button>
-            <h2 id="modalTitle">Información de Clave</h2>
-            <div id="modalContent"></div>
-        </div>
-    </div>
-
-    <script>
-        const allKeysData = ${JSON.stringify(allKeys.map(k => ({
-            key: k.key, type: k.type,
-            status: (k.blocked ? 'blocked' : (k.maxUses && (k.uses || 0) / k.maxUses >= 0.8 ? 'warning' : 'active')),
-            dynamic: k.dynamic || false
-        })))};
-
-        function filterKeys() {
-            const search = document.getElementById('searchInput').value.toLowerCase();
-            const type = document.getElementById('typeFilter').value;
-            const status = document.getElementById('statusFilter').value;
-            const cards = document.querySelectorAll('.key-card');
-            cards.forEach((card, index) => {
-                const key = card.dataset.key;
-                const cardType = card.dataset.type;
-                const cardStatus = card.dataset.status;
-                const matchSearch = key.toLowerCase().includes(search);
-                const matchType = type === 'all' || cardType === type || (type === 'dinamica' && allKeysData[index]?.dynamic);
-                const matchStatus = status === 'all' || cardStatus === status;
-                card.style.display = (matchSearch && matchType && matchStatus) ? 'flex' : 'none';
-            });
-        }
-
-        function escapeInfoText(value) {
-            const div = document.createElement('div');
-            div.textContent = String(value ?? '');
-            return div.innerHTML;
-        }
-
-        async function showKeyInfo(key) {
-            try {
-                const res = await fetch('/key-info', {
-                    method: 'POST', credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key })
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(data.error || 'No se pudo cargar la información.');
-                const modal = document.getElementById('infoModal');
-                document.getElementById('modalTitle').textContent = '🔑 ' + key;
-                let html = '';
-                html += '<div class="detail-row"><span>Rango</span><span>' + escapeInfoText(data.rango) + '</span></div>';
-                html += '<div class="detail-row"><span>Tipo</span><span>' + escapeInfoText(data.type) + '</span></div>';
-                html += '<div class="detail-row"><span>Expiración</span><span>' + escapeInfoText(data.expires) + '</span></div>';
-                html += '<div class="detail-row"><span>Usos</span><span>' + escapeInfoText(data.uses) + (data.maxUses ? '/' + escapeInfoText(data.maxUses) : '') + '</span></div>';
-                html += '<div class="detail-row"><span>Estado</span><span>' + (data.blocked ? '🚫 Bloqueada' : '✅ Activa') + '</span></div>';
-                html += '<div class="detail-row"><span>Dinámica</span><span>' + (data.dynamic ? '🎲 Sí' : '📌 No') + '</span></div>';
-                html += '<div class="detail-row"><span>Un solo uso</span><span>' + (data.un_solo_uso ? '✅ Sí' : '❌ No') + '</span></div>';
-                if (Array.isArray(data.tags) && data.tags.length) {
-                    html += '<div class="detail-row"><span>Tags</span><span>' + data.tags.map(escapeInfoText).join(', ') + '</span></div>';
-                }
-                if (data.notas) {
-                    html += '<div class="detail-row"><span>Notas</span><span>' + escapeInfoText(data.notas) + '</span></div>';
-                }
-                html += '<h3 style="margin-top:20px;">Historial (últimas 10)</h3>';
-                if (Array.isArray(data.history) && data.history.length) {
-                    data.history.forEach(h => {
-                        const cls = h.valid ? 'valid' : 'invalid';
-                        html += '<div class="history-item ' + cls + '">';
-                        html += '<span>' + (h.valid ? '✅' : '❌') + ' ' + escapeInfoText(new Date(h.timestamp).toLocaleString()) + '</span>';
-                        html += '<span>' + escapeInfoText(h.ip) + '</span>';
-                        html += '</div>';
-                    });
-                } else {
-                    html += '<p>Sin verificaciones aún.</p>';
-                }
-                document.getElementById('modalContent').innerHTML = html;
-                modal.classList.add('active');
-            } catch (err) {
-                alert('Error al cargar información: ' + err.message);
-            }
-        }
-
-        function closeModal() {
-            document.getElementById('infoModal').classList.remove('active');
-        }
-        document.getElementById('infoModal').addEventListener('click', function(e) {
-            if (e.target === this) closeModal();
-        });
-    </script>
-    ${getCookieBannerScript()}
-    ${getLegalFooter()}
-</body>
-</html>`;
-    return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-}
-
-// ==================================================
-// [ ADMIN ROUTE ]
-// ==================================================
-
 async function handleAdminRoute(env, url, headers, request) {
     const auth = await requireAdmin(env, request);
     if (auth) {
@@ -7964,15 +7750,23 @@ async function handleBackup(env, request) {
 async function handleUploadKeys(env, request) {
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
-    const formData = await request.formData();
+    const declaredLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredLength > 2 * 1024 * 1024 + 64 * 1024) return jsonResponse({ error: 'El CSV supera el límite de 2 MB.' }, 413);
+    let formData;
+    try { formData = await request.formData(); } catch { return jsonResponse({ error: 'Formulario de subida no válido.' }, 400); }
     const file = formData.get('file');
     const pin = formData.get('pin');
     const adminPin = env.ADMIN_SECOND_PIN;
     if (!adminPin || !timingSafeCompare(String(pin || ''), String(adminPin))) return jsonResponse({ error: 'PIN incorrecto' }, 403);
-    if (!file) return jsonResponse({ error: 'No se subió ningún archivo' }, 400);
-
+    if (!file || typeof file.size !== 'number') return jsonResponse({ error: 'No se subió ningún archivo válido.' }, 400);
+    if (file.size > 2 * 1024 * 1024) return jsonResponse({ error: 'El CSV supera el límite de 2 MB.' }, 413);
+    const uploadMime = String(file.type || '').toLowerCase();
+    if (uploadMime && !['text/csv', 'text/plain', 'application/vnd.ms-excel', 'application/octet-stream'].includes(uploadMime)) {
+        return jsonResponse({ error: 'Formato no compatible. Sube un archivo CSV o TXT.' }, 415);
+    }
     const text = await file.text();
-    const lines = text.split('\n').filter(l => l.trim());
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length > 10000) return jsonResponse({ error: 'El CSV supera el límite de 10 000 líneas.' }, 413);
     let generated = 0;
     for (const line of lines) {
         const key = line.trim();
@@ -8889,7 +8683,7 @@ async function socialEnsureUniqueUsername(env, baseName) {
         const taken = await env.STATS.get(`username_${candidate.toLowerCase()}`);
         if (!taken) return candidate;
     }
-    return socialSlugify(base + generateRandomHex(4));
+    return socialSlugify(base + generateRandomHex(16));
 }
 
 async function socialGetUserByUsername(env, username) {
@@ -10034,6 +9828,8 @@ export async function applySecurityHeaders(response) {
     headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     headers.set('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
     headers.set('X-Frame-Options', 'DENY');
+    // HSTS protects future visits over HTTPS; deliberately omit includeSubDomains.
+    headers.set('Strict-Transport-Security', 'max-age=31536000');
     return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
 

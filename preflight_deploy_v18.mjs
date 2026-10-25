@@ -40,20 +40,11 @@ if (errors.length) {
 }
 
 // Deployment is intentionally gated on the critical secret names existing in Cloudflare now.
-const requiredSecrets = [
-  'DYNAMIC_KEY_ENCRYPTION_SECRET',
-  'DYNAMIC_KEY_INDEX_SECRET',
-  'ADMIN_SECOND_PIN',
-  'TOTP_SECRET',
-  'HMAC_SECRET_CURRENT',
-  'PAYPAL_SECRET',
-  'PAYPAL_WEBHOOK_ID',
-  'BREVO_API_KEY',
-  'GEMINI_API_KEY',
-  'OPENROUTER_API_KEY',
-  'GOOGLE_CLIENT_SECRET',
-  'DISCORD_CLIENT_SECRET'
-];
+const requiredSecrets = Array.isArray(config.secrets?.required) ? config.secrets.required : [];
+if (!requiredSecrets.length || requiredSecrets.some(name => typeof name !== 'string' || !/^[A-Z][A-Z0-9_]+$/.test(name))) {
+  console.error('El inventario secrets.required de Wrangler está vacío o contiene nombres inválidos.');
+  process.exit(2);
+}
 const list = spawnSync('npx', ['wrangler', 'secret', 'list', '--config', configPath, '--format', 'json'], {
   encoding: 'utf8', shell: process.platform === 'win32', timeout: 30000
 });
