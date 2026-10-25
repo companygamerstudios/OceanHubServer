@@ -37,4 +37,6 @@ This PR is a first, bounded remediation pass. It does not claim all 100 checklis
 9. Manually test accessibility, iPhone/Android layouts, legal text and privacy/cookie handling, plus account export/deletion and purchase lifecycle.
 10. Commission an external penetration test before launch.
 
+**Wrangler note:** item 53 of the supplied list assumes `secrets.required` is non-standard. I checked Cloudflare's current [Wrangler configuration documentation](https://developers.cloudflare.com/workers/wrangler/configuration/), which documents this field as supported and says deployment validates it. This branch therefore keeps the supported field instead of removing it. Item 52 remains a review decision: `keep_vars: true` preserves dashboard variables and can allow drift, so remove it only after checking the live dashboard settings.
+
 The CI suite is not a full pentest. It does not call Cloudflare production, list secret values, touch user KV data, rotate provider credentials, create new Cloudflare resources or deploy a Worker.
