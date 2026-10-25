@@ -42,6 +42,10 @@ test('key verification and key info use POST request bodies', () => {
   assert.match(source, /fetch\('\/key-info',[\s\S]{0,220}method: 'POST'[\s\S]{0,180}body: JSON\.stringify\(\{ key \}\)/);
 });
 
+test('unused legacy main route has been removed', () => {
+  assert.equal(source.includes('handleMainRoute'), false);
+});
+
 test('random ID suffixes use 16 random bytes', () => {
   assert.equal((source.match(/generateRandomHex\(16\)/g) || []).length >= 3, true);
   assert.equal(source.includes('generateRandomHex(4)'), false);
