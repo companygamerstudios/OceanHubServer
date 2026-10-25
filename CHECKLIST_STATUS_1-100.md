@@ -4,6 +4,8 @@ Estado de esta pasada: PR #4. Este documento distingue cambios subidos, hallazgo
 
 ## Cambios hechos en esta rama
 
+- **Despliegue automático:** el workflow **Implementar comando** se activa al hacer push a `main` y también manualmente desde Actions. Ejecuta pruebas, dry-run y preflight antes de desplegar `oceanhud`. Requiere los secretos de GitHub `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID`; el flujo falla sin ellos y no publica desde ramas de trabajo.
+
 - **11:** STABLE_HORDE_API_KEY aparece en la lista de secretos requerida por Wrangler y en la comprobación previa al despliegue. Esto valida el nombre, no el valor ni su aceptación por Stable Horde.
 - **13, 98, 100:** se documenta que prompts, contexto, archivos e imágenes pueden pasar a Gemini, OpenRouter o Stable Horde según la función/configuración; se añadieron avisos en Air Flow y la política de privacidad.
 - **20:** los tres flujos admin que validan PIN registran fallos por IP y por identificador hash de la cuenta, con ventana de 10 minutos.
