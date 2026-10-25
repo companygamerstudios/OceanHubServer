@@ -1,4 +1,4 @@
-// ==================================================
+// =====================================================
 // 🌊 OCEAN HUB V29.1 — SOCIAL + editar perfil (bio/avatar) + notificaciones
 // Añadido: recuperación de contraseña por email, aviso de compra,
 // historial de inicios de sesión, páginas legales y banner de cookies.
