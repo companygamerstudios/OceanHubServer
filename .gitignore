@@ -1,0 +1,11 @@
+# Local-only Cloudflare secrets; never commit real values
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Local development artifacts
+.wrangler/
+node_modules/
+npm-debug.log*
+wrangler-dev.log
+npm-test.log
