@@ -5205,7 +5205,7 @@ async function handleAirFlowCreateImageV11(env, request) {
         const headers = {
             'Content-Type': 'application/json',
             'apikey': apiKey,
-            'Client-Agent': 'OceanHub-AirFlow:18:https://github.com/companygamerstudios/OceanHubServer'
+            'Client-Agent': 'OceanHub-AirFlow:18:github.com/companygamerstudios/OceanHubServer'
         };
         try {
             const response = await fetch('https://stablehorde.net/api/v2/generate/async', {
@@ -5342,7 +5342,7 @@ async function handleAirFlowCreateImageStatusV1(env, request) {
     if (!apiKey) return jsonResponse({ error: 'Falta STABLE_HORDE_API_KEY en Cloudflare.' }, 503);
     const headers = {
         'apikey': apiKey,
-        'Client-Agent': 'OceanHub-AirFlow:18:https://github.com/companygamerstudios/OceanHubServer'
+        'Client-Agent': 'OceanHub-AirFlow:18:github.com/companygamerstudios/OceanHubServer'
     };
 
     try {
@@ -5357,7 +5357,10 @@ async function handleAirFlowCreateImageStatusV1(env, request) {
                 await env.STATS.delete(jobKey);
                 return jsonResponse({ error: 'La solicitud expiró o ya no existe en Stable Horde.' }, 410);
             }
-            return jsonResponse({ error: 'No se pudo consultar la cola de Stable Horde. Intenta de nuevo.' }, 502);
+            if (checkResponse.status >= 500 || checkResponse.status === 429) {
+                return jsonResponse({ ok: true, pending: true, provider: 'stablehorde', message: 'Stable Horde está ocupado. Volveré a consultar la cola automáticamente.' });
+            }
+            return jsonResponse({ error: 'No se pudo consultar la cola de Stable Horde. Comprueba la clave y vuelve a intentarlo.' }, 502);
         }
         if (check.faulted === true) {
             await env.STATS.delete(jobKey);
@@ -5386,7 +5389,10 @@ async function handleAirFlowCreateImageStatusV1(env, request) {
         const status = await statusResponse.json().catch(() => ({}));
         if (!statusResponse.ok) {
             console.error('Air Flow Stable Horde result fetch failed with HTTP', statusResponse.status);
-            return jsonResponse({ error: 'La imagen terminó, pero no se pudo recuperar el resultado. Vuelve a consultar en unos segundos.' }, 502);
+            if (statusResponse.status >= 500 || statusResponse.status === 429) {
+                return jsonResponse({ ok: true, pending: true, provider: 'stablehorde', message: 'La generación está lista; recuperando la imagen. Consultaré de nuevo en breve.' });
+            }
+            return jsonResponse({ error: 'La imagen terminó, pero no se pudo recuperar el resultado. Vuelve a intentarlo.' }, 502);
         }
         const generation = Array.isArray(status.generations) ? status.generations.find(item => typeof item?.img === 'string' && item.img) : null;
         if (!generation) {
