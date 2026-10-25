@@ -16,4 +16,4 @@ const fn = source.slice(start, end);
 assert.ok(fn.includes('getPayPalMode(env) === \'sandbox\''));
 assert.ok(fn.includes('https://api-m.sandbox.paypal.com'));
 assert.ok(fn.includes('https://api-m.paypal.com'));
-console.log('paypal_mode_test_v18: 8 comprobaciones superadas; no se hicieron pagos reales.');
+console.log('paypal_mode_test_v18: 10 comprobaciones superadas; no se hicieron pagos reales.');
