@@ -27,4 +27,4 @@ for (const [name, end] of [
 assert.ok(!Object.hasOwn(config, 'r2_buckets'), 'La configuración no debe depender de un bucket R2 no disponible');
 assert.ok(!config.secrets.required.includes('BACKUP_ENCRYPTION_SECRET'), 'Los backups desactivados no deben bloquear el despliegue por un secreto ausente');
 
-console.log('backup_migration_tool_test_v18: 8 comprobaciones superadas. Las migraciones no se ejecutaron.');
+console.log('backup_migration_tool_test_v18: comprobaciones de backup y migración superadas. Las migraciones no se ejecutaron.');
