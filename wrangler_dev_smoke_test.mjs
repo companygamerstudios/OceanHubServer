@@ -4,16 +4,17 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 18787;
 const url = `http://127.0.0.1:${port}/air-flow/status`;
-const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const child = spawn(command, [
-  '--no-install','wrangler','dev','--local','--config','wrangler.jsonc',
+const cli = new URL('./node_modules/wrangler/bin/wrangler.js', `file://${process.cwd().replace(/\\/g, '/')}/`).pathname;
+const child = spawn(process.execPath, [
+  cli,'dev','--local','--config','wrangler.jsonc',
   '--port',String(port),'--ip','127.0.0.1'
 ], {
   cwd: process.cwd(),
   env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
   stdio: ['ignore','pipe','pipe'],
   windowsHide: true,
-  shell: process.platform === 'win32'
+  detached: process.platform !== 'win32',
+  shell: false
 });
 let logs = '';
 let exitInfo = null;
@@ -49,7 +50,17 @@ try {
   console.error('Registro de Wrangler (sin secretos):\n' + logs.slice(-12000));
   process.exitCode = 1;
 } finally {
-  if (!exitInfo) child.kill('SIGTERM');
+  if (!exitInfo) {
+    try {
+      if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGTERM');
+      else child.kill('SIGTERM');
+    } catch (_) {}
+  }
   await Promise.race([exited, delay(2000)]);
-  if (!exitInfo) child.kill('SIGKILL');
+  if (!exitInfo) {
+    try {
+      if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+      else child.kill('SIGKILL');
+    } catch (_) {}
+  }
 }
