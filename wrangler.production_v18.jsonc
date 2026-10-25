@@ -11,7 +11,8 @@
     "GEMINI_MODEL": "gemini-2.5-flash",
     "OPENROUTER_MODEL": "openrouter/free",
     "GEMINI_IMAGE_MODEL": "gemini-2.0-flash-preview-image-generation",
-    "AF_EXTRA_MODELS": "[]"
+    "AF_EXTRA_MODELS": "[]",
+    "AF_IMAGE_PROVIDER": "stablehorde"
   },
   "kv_namespaces": [
     {
@@ -46,6 +47,7 @@
       "BREVO_API_KEY",
       "GEMINI_API_KEY",
       "OPENROUTER_API_KEY",
+      "STABLE_HORDE_API_KEY",
       "GOOGLE_CLIENT_SECRET",
       "DISCORD_CLIENT_SECRET"
     ]
