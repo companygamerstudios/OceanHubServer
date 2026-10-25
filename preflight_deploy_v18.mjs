@@ -39,7 +39,7 @@ if (errors.length) {
   process.exit(1);
 }
 
-// Deployment is intentionally gated on the critical secret names existing in Cloudflare.
+// Deployment is intentionally gated on the critical secret names existing in Cloudflare now.
 const requiredSecrets = [
   'DYNAMIC_KEY_ENCRYPTION_SECRET',
   'DYNAMIC_KEY_INDEX_SECRET',
