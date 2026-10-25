@@ -16,4 +16,4 @@ const json = await applySecurityHeaders(new Response('{"ok":true}', { headers: {
 assert.equal(await json.text(), '{"ok":true}', 'No debe transformar el cuerpo JSON');
 assert.equal(json.headers.get('X-Content-Type-Options'), 'nosniff');
 
-console.log('ui_theme_test_v18: 9 comprobaciones de cabeceras/tema superadas.');
+console.log('ui_theme_test_v18: 10 comprobaciones de cabeceras/tema superadas.');
