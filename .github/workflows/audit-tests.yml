@@ -31,3 +31,26 @@ jobs:
           node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js
           node --check preflight_deploy_v18.mjs
           node --check security_checks_v18.mjs
+      - name: Smoke test Wrangler dev with local storage only
+        shell: bash
+        run: |
+          set -eu
+          LOG="$RUNNER_TEMP/wrangler-dev.log"
+          npx wrangler dev --config wrangler.jsonc --ip 127.0.0.1 --port 8787 >"$LOG" 2>&1 &
+          DEV_PID=$!
+          trap 'kill "$DEV_PID" 2>/dev/null || true; wait "$DEV_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8787/air-flow || true)"
+            if [ "$CODE" = "200" ] || [ "$CODE" = "302" ]; then
+              echo "PASS wrangler dev local: HTTP $CODE"
+              tail -n 35 "$LOG"
+              exit 0
+            fi
+            if ! kill -0 "$DEV_PID" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          cat "$LOG"
+          echo "FAIL wrangler dev no respondió con HTTP 200/302"
+          exit 1
