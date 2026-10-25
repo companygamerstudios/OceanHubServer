@@ -46,6 +46,11 @@ test('unused legacy main route has been removed', () => {
   assert.equal(source.includes('handleMainRoute'), false);
 });
 
+test('PIN throttling includes a hashed account key as well as the client IP', () => {
+  assert.ok((source.match(/pin_fail_account_/g) || []).length >= 3);
+  assert.match(source, /Demasiados intentos de PIN para esta cuenta o IP/);
+});
+
 test('random ID suffixes use 16 random bytes', () => {
   assert.equal((source.match(/generateRandomHex\(16\)/g) || []).length >= 3, true);
   assert.equal(source.includes('generateRandomHex(4)'), false);
