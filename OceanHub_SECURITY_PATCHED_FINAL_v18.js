@@ -5474,6 +5474,86 @@ async function handleAirFlowPageV11(env, request) {
 @media(max-width:1050px){.app{grid-template-columns:220px minmax(0,1fr)}.topbar{padding:12px 14px}.welcome{padding-left:20px;padding-right:20px}.chat-wrap,.composer-wrap,.disclaimer{max-width:100%}}
 @media(max-width:780px){body{overflow:hidden}.app{display:block}.sidebar{position:fixed;left:0;top:0;bottom:0;width:275px;z-index:120;transform:translateX(-105%);transition:transform .2s ease;box-shadow:20px 0 80px rgba(0,0,0,.4)}.sidebar.open{transform:translateX(0)}.mobile-menu{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:rgba(8,25,42,.72);color:#b8d6ea}.model-picker{display:none}.top-search{max-width:none}.top-actions .top-icon.hide-mobile{display:none}.welcome{padding:25px 17px 4px}.welcome h1{font-size:30px}.chat-wrap{padding:7px 10px 3px}.messages{padding-left:2px;padding-right:2px}.bubble-wrap{max-width:88%}.suggestions{grid-template-columns:1fr}.composer-wrap{padding:3px 8px 7px}.composer{border-radius:17px}.composer-info{display:none}.chip{font-size:9px}.section-label{padding-left:15px}.disclaimer{padding:0 12px 6px}.mobile-only{display:block}}
 @media(max-width:430px){.brand{padding-top:14px}.topbar{height:62px}.top-search input{height:37px;font-size:11px}.top-icon{width:35px;height:35px}.welcome p{font-size:12px}.message{gap:8px}.message .avatar2{width:28px;height:28px}.bubble{font-size:11px;padding:10px 11px}.composer-bottom{gap:3px}.mode-select{padding:4px 6px;font-size:8px}}
+/* Air Flow Glass responsive touch and keyboard improvements */
+html,body{height:var(--af-vh,100dvh);min-height:0}
+body{overflow:hidden}
+.app{height:var(--af-vh,100dvh);min-height:0}
+.main,.content,.chat-wrap,.messages{min-height:0}
+.main{overflow:hidden}
+.messages{-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scroll-padding-bottom:18px}
+.composer-wrap{flex:0 0 auto;position:relative;z-index:12;isolation:isolate;padding:7px 8px calc(8px + env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(6,17,31,0),rgba(6,17,31,.96) 22%);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+.composer{padding:8px;border-radius:22px}
+.composer-top{min-height:44px;gap:8px}
+.attach-btn{width:44px;height:44px;min-width:44px;min-height:44px;flex:none;border-radius:14px}
+.send-btn{width:46px;height:46px;min-width:46px;min-height:46px;flex:none;border-radius:15px}
+.input{font-size:16px;min-height:44px;max-height:160px;padding:10px 7px;line-height:1.5;overflow-y:auto}
+.composer-bottom{overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;touch-action:pan-x;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+.composer-bottom::-webkit-scrollbar{display:none}
+.mode-select{flex:0 0 auto;min-height:36px;padding:7px 10px;font-size:10px}
+.topbar{flex:none}
+.top-search input{font-size:16px}
+.recent,.suggestion,.chip,.nav button,.nav a,.top-icon,.new-btn,.mode-select,.attach-btn,.send-btn,.action,.close,.drawer .btn{touch-action:manipulation}
+body.af-has-messages .welcome{display:none!important}
+.sidebar{height:var(--af-vh,100dvh)}
+.overlay{height:var(--af-vh,100dvh);overflow:auto}
+.drawer{height:var(--af-vh,100dvh);max-height:var(--af-vh,100dvh);bottom:auto;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
+@media(max-width:780px){
+ .topbar{height:auto;min-height:0;display:grid;grid-template-columns:38px minmax(0,1fr) auto;grid-template-rows:auto auto;gap:7px;padding:8px 10px 9px}
+ .mobile-menu{grid-column:1;grid-row:1}
+ .model-picker{display:flex!important;grid-column:2;grid-row:1;min-width:0;width:100%;padding:6px 8px;gap:6px;overflow:hidden}
+ #providerLabel{display:none}
+ #modelSel{min-width:0;width:100%;max-width:none!important;font-size:12px!important}
+ .top-actions{grid-column:3;grid-row:1;gap:4px}
+ .top-actions .top-icon{width:34px;height:34px}
+ .top-search{grid-column:1/-1;grid-row:2;max-width:none;width:100%;margin:0}
+ .top-search input{height:40px;font-size:16px}
+ .welcome{padding:14px 12px 2px}
+ .welcome h1{font-size:clamp(22px,6vw,28px);margin:6px 0}
+ .welcome p{display:none}
+ .chips{gap:6px;margin-top:9px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:3px;scrollbar-width:none}
+ .chips::-webkit-scrollbar{display:none}
+ .chip{flex:0 0 auto;min-height:36px;padding:8px 11px;font-size:10px}
+ .chat-wrap{padding:4px 8px 0}
+ .messages{padding:4px 2px 12px;min-height:0}
+ .empty{padding:10px 3px;min-height:0}
+ .empty-card{padding:17px 13px;border-radius:18px}
+ .empty-orb{width:44px;height:44px;font-size:20px;margin-bottom:9px}
+ .empty-card h2{font-size:18px}
+ .empty-card p{font-size:11px;line-height:1.45}
+ .suggestions{gap:7px;margin-top:12px}
+ .suggestion{font-size:11px;padding:10px;min-height:42px}
+ .composer-wrap{padding:6px 7px calc(7px + env(safe-area-inset-bottom))}
+ .composer{padding:6px;border-radius:18px}
+ .composer-bottom{margin-left:-2px;margin-right:-2px;gap:2px}
+ .mode-select{min-height:36px;padding:7px 9px;font-size:10px}
+ .disclaimer{font-size:9px;line-height:1.3;padding:0 12px 4px}
+ .sidebar{height:var(--af-vh,100dvh);padding-bottom:env(safe-area-inset-bottom)}
+ .drawer{width:min(520px,100vw);padding:14px;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
+ body.af-sidebar-open::after{content:"";position:fixed;inset:0;z-index:110;background:rgba(0,6,13,.58);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+ .sidebar{z-index:120}
+}
+@media(max-width:430px){
+ .top-actions #statusBtn,.top-actions #themeBtn{display:none}
+ .welcome h1{font-size:23px;letter-spacing:-.6px}
+ .welcome .chips{max-width:calc(100vw - 24px)}
+ .suggestions{grid-template-columns:1fr}
+ .empty-card p{display:none}
+ .bubble{font-size:14px;line-height:1.65;padding:11px 12px}
+ .composer-bottom .mode-select{min-height:38px}
+ .composer-info{display:none}
+ .message-actions .action{min-width:36px;min-height:36px}
+}
+@media(max-height:650px) and (max-width:780px){
+ .welcome{padding:8px 10px 0}
+ .welcome h1{font-size:21px;margin:3px 0}
+ .welcome .chips{margin-top:5px}
+ .empty-card{padding:10px 11px}
+ .empty-orb{display:none}
+ .empty-card p{display:none}
+ .suggestions{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+ .suggestion{padding:8px;font-size:10px;min-height:38px}
+ .disclaimer{display:none}
+}
 </style>
 </head>
 <body>
@@ -5543,6 +5623,77 @@ async function handleAirFlowPageV11(env, request) {
 <div class="overlay" id="overlay"><aside class="drawer" id="drawer"></aside></div>
 
 <script src="/air-flow/app.js" defer></script>
+<script>
+(function(){
+  var root=document.documentElement, body=document.body;
+  function syncViewport(){
+    var vv=window.visualViewport;
+    var h=vv&&vv.height?vv.height:window.innerHeight;
+    root.style.setProperty('--af-vh',Math.max(260,Math.round(h))+'px');
+  }
+  function scrollFocusedInput(){
+    var messages=document.getElementById('messages');
+    var input=document.getElementById('input');
+    if(messages&&input&&document.activeElement===input){
+      window.requestAnimationFrame(function(){messages.scrollTop=messages.scrollHeight;});
+    }
+  }
+  syncViewport();
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize',function(){syncViewport();scrollFocusedInput();});
+    window.visualViewport.addEventListener('scroll',syncViewport);
+  }
+  window.addEventListener('resize',function(){syncViewport();scrollFocusedInput();});
+  window.addEventListener('orientationchange',function(){setTimeout(function(){syncViewport();scrollFocusedInput();},150);});
+  document.addEventListener('DOMContentLoaded',function(){
+    var messages=document.getElementById('messages');
+    var input=document.getElementById('input');
+    var sidebar=document.getElementById('sidebar');
+    var menu=document.getElementById('menuBtn');
+    function syncChatState(){
+      body.classList.toggle('af-has-messages',!!(messages&&messages.querySelector('.message')));
+    }
+    function syncSidebarState(){
+      body.classList.toggle('af-sidebar-open',!!(sidebar&&sidebar.classList.contains('open')));
+    }
+    if(messages&&window.MutationObserver){
+      var messagesObserver=new MutationObserver(syncChatState);
+      messagesObserver.observe(messages,{childList:true,subtree:true});
+    }
+    if(sidebar&&window.MutationObserver){
+      var sidebarObserver=new MutationObserver(syncSidebarState);
+      sidebarObserver.observe(sidebar,{attributes:true,attributeFilter:['class']});
+    }
+    if(input){
+      input.setAttribute('aria-label','Mensaje para Air Flow');
+      input.setAttribute('enterkeyhint','send');
+      input.addEventListener('focus',function(){
+        syncViewport();
+        setTimeout(scrollFocusedInput,120);
+        setTimeout(scrollFocusedInput,320);
+      });
+    }
+    if(menu)menu.setAttribute('aria-label','Abrir menú de navegación');
+    var send=document.getElementById('send');
+    if(send)send.setAttribute('aria-label','Enviar mensaje');
+    var model=document.getElementById('modelSel');
+    if(model)model.setAttribute('aria-label','Seleccionar modelo de IA');
+    document.addEventListener('click',function(e){
+      if(body.classList.contains('af-sidebar-open')&&sidebar&&!sidebar.contains(e.target)&&e.target!==menu){
+        sidebar.classList.remove('open');
+        body.classList.remove('af-sidebar-open');
+      }
+    });
+    document.addEventListener('keydown',function(e){
+      if(e.key==='Escape'&&sidebar&&sidebar.classList.contains('open')){
+        sidebar.classList.remove('open');
+        body.classList.remove('af-sidebar-open');
+      }
+    });
+    syncChatState();
+    syncSidebarState();
+  });
+})();
 </script>
 </body></html>`, {headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 }
