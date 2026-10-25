@@ -2749,10 +2749,10 @@ async function handleMigrateKeyIndexHmac(env, request) {
     const pin = typeof payload?.pin === 'string' ? payload.pin : '';
     if (!env.ADMIN_SECOND_PIN || !timingSafeCompare(pin, String(env.ADMIN_SECOND_PIN))) {
         const failTime = Math.floor(Date.now() / 1000);
-        const record = failed || { count: 0, first_fail: failTime };
+        const record = failed && failTime - Number(failed.first_fail || 0) < PIN_BRUTE_WINDOW ? failed : { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(failKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
-        const accountRecord = accountFailed || { count: 0, first_fail: failTime };
+        const accountRecord = accountFailed && failTime - Number(accountFailed.first_fail || 0) < PIN_BRUTE_WINDOW ? accountFailed : { count: 0, first_fail: failTime };
         accountRecord.count++;
         await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
@@ -2828,10 +2828,10 @@ async function handleEncryptKeysAtRest(env, request) {
     const pin = typeof payload?.pin === 'string' ? payload.pin : '';
     if (!env.ADMIN_SECOND_PIN || !timingSafeCompare(pin, String(env.ADMIN_SECOND_PIN))) {
         const failTime = Math.floor(Date.now() / 1000);
-        const record = failed || { count: 0, first_fail: failTime };
+        const record = failed && failTime - Number(failed.first_fail || 0) < PIN_BRUTE_WINDOW ? failed : { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(failKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
-        const accountRecord = accountFailed || { count: 0, first_fail: failTime };
+        const accountRecord = accountFailed && failTime - Number(accountFailed.first_fail || 0) < PIN_BRUTE_WINDOW ? accountFailed : { count: 0, first_fail: failTime };
         accountRecord.count++;
         await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
@@ -2939,10 +2939,10 @@ async function handleAdminAction(env, url, request) {
     const adminPin = env.ADMIN_SECOND_PIN;
     if (!adminPin || !timingSafeCompare(String(pin || ''), String(adminPin))) {
         const failTime = Math.floor(Date.now() / 1000);
-        let record = failRecord || { count: 0, first_fail: failTime };
+        let record = failRecord && failTime - Number(failRecord.first_fail || 0) < PIN_BRUTE_WINDOW ? failRecord : { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(pinFailKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
-        let accountRecord = accountFailRecord || { count: 0, first_fail: failTime };
+        let accountRecord = accountFailRecord && failTime - Number(accountFailRecord.first_fail || 0) < PIN_BRUTE_WINDOW ? accountFailRecord : { count: 0, first_fail: failTime };
         accountRecord.count++;
         await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
