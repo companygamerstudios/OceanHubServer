@@ -9,7 +9,7 @@ assert.notEqual(end, -1, 'No se pudo delimitar el handler de verificación');
 const handler = source.slice(start, end);
 
 assert.match(source, /EMAIL_VERIFICATION_TTL\s*=\s*86400/, 'Los enlaces deben caducar en 24 horas');
-assert.match(handler, /\\/\^\[a-f0-9\]\{64\}\$\\/i, 'El token debe tener formato hexadecimal de 64 caracteres');
+assert.ok(handler.includes('!/^[a-f0-9]{64}$/i.test(token)'), 'El token debe tener formato hexadecimal de 64 caracteres');
 assert.match(handler, /email_verify_current_\$\{email\}/, 'Solo se debe aceptar el token más reciente por email');
 assert.match(handler, /checkActionRateLimit\(env, 'email-verify'/, 'La finalización del flujo debe limitar intentos');
 assert.match(handler, /withKVLock\(env, `email-verify:\$\{email\}`/, 'La consumición del token debe estar bloqueada frente a concurrencia');
