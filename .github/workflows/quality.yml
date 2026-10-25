@@ -1,0 +1,33 @@
+name: Quality gates
+
+on:
+  push:
+    branches: [main, "security/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Check syntax
+        run: npm run check:syntax
+      - name: Run smoke tests
+        run: npm test
+      - name: Validate local Wrangler configuration without deploying
+        run: npx wrangler deploy --dry-run --config wrangler.local.jsonc
