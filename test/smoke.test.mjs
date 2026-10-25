@@ -29,6 +29,12 @@ test('production payment mode is explicitly configured, not inferred', () => {
   assert.ok(production.secrets.required.every((name) => /^[A-Z][A-Z0-9_]+$/.test(name)));
 });
 
+test('production image generation explicitly uses Stable Horde and requires its API secret', () => {
+  assert.equal(production.vars.AF_IMAGE_PROVIDER, 'stablehorde');
+  assert.ok(production.secrets.required.includes('STABLE_HORDE_API_KEY'));
+  assert.match(source, /env\.STABLE_HORDE_API_KEY/);
+});
+
 test('session cookie and baseline response security headers remain present', () => {
   assert.match(source, /HttpOnly; Secure; SameSite=Strict/);
   assert.match(source, /Content-Security-Policy/);
