@@ -3,21 +3,23 @@
   "private": true,
   "description": "Ocean Hub v18 — Ocean Liquid Glass UI, and fail-closed payments, HMAC key indexing, and no external object-storage dependency",
   "devDependencies": {
-    "wrangler": "^4.146.0"
+    "wrangler": "4.152.0"
   },
   "scripts": {
-    "dev": "wrangler dev --config wrangler.jsonc --port 8787",
-    "dev:lock": "wrangler dev --config wrangler.test_v18.jsonc --port 8787",
+    "dev": "wrangler dev --local --config wrangler.jsonc --port 8787",
+    "dev:lock": "wrangler dev --local --config wrangler.test_v18.jsonc --port 8788",
     "security:check": "node security_checks_v18.mjs",
     "deploy:production": "node preflight_deploy_v18.mjs production && wrangler deploy --config wrangler.production_v18.jsonc",
     "test:email-flow": "node email_verification_flow_test.mjs",
     "test:keys-at-rest": "node key_at_rest_test_v18.mjs",
-    "test": "npm run security:check && npm run test:email-flow && npm run test:keys-at-rest && npm run test:key-index-routes && npm run test:backup-migration-tools && npm run test:ui-theme && npm run test:paypal-mode",
+    "test": "npm run check:syntax && npm run security:check && npm run test:email-flow && npm run test:keys-at-rest && npm run test:key-index-routes && npm run test:backup-migration-tools && npm run test:ui-theme && npm run test:paypal-mode && npm run test:stable-horde",
     "test:key-index-routes": "node key_index_route_test_v18.mjs",
     "test:backup-migration-tools": "node backup_migration_tool_test_v18.mjs",
     "deploy:staging": "node preflight_deploy_v18.mjs staging && wrangler deploy --config wrangler.staging.jsonc",
     "test:ui-theme": "node ui_theme_test_v18.mjs",
-    "test:paypal-mode": "node paypal_mode_test_v18.mjs"
+    "test:paypal-mode": "node paypal_mode_test_v18.mjs",
+    "check:syntax": "node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js && node --check preflight_deploy_v18.mjs && node --check security_checks_v18.mjs && node --check email_verification_flow_test.mjs && node --check key_at_rest_test_v18.mjs && node --check key_index_route_test_v18.mjs && node --check backup_migration_tool_test_v18.mjs && node --check ui_theme_test_v18.mjs && node --check paypal_mode_test_v18.mjs && node --check stable_horde_test_v18.mjs",
+    "test:stable-horde": "node stable_horde_test_v18.mjs"
   },
   "type": "module"
 }
