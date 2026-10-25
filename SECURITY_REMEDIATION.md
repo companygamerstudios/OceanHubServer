@@ -14,7 +14,7 @@ This PR is a first, bounded remediation pass. It does not claim all 100 checklis
 - Air Flow file/image upload paths enforce a bounded request size where `Content-Length` is present, a 10 MiB decoded-content limit, MIME allowlists and data-URL MIME consistency.
 - Stable Horde errors tell the user which upstream status failed without logging the upstream response body or the API key.
 - Air Flow UI and the privacy notice disclose that prompts/context/uploads can be sent to Gemini, OpenRouter or Stable Horde according to the feature and configuration.
-- Removes the non-standard `secrets.required` property from Wrangler config and moves names-only inventory to `required-secrets.production.json`; the preflight checks the inventory against Cloudflare secret names.
+- Keeps Wrangler's supported `secrets.required` field as a names-only inventory; the preflight checks the configured names against Cloudflare secret names. `BACKUP_ENCRYPTION_SECRET` is not a production deployment requirement while the external-backup endpoint is explicitly disabled.
 - Fixes package scripts that referred to missing test files, pins the Wrangler version, uses a local/sandbox config for development, and runs smoke tests/dry-run in CI only.
 
 ## Already present in the reviewed source (needs live verification)
@@ -27,7 +27,7 @@ This PR is a first, bounded remediation pass. It does not claim all 100 checklis
 ## Manual operations; code repository access cannot perform these safely
 
 1. In Cloudflare, rotate `TOTP_SECRET`, update/rebind the administrator's authenticator, and verify the admin `otp_secret` KV record without exposing the seed.
-2. Securely verify the actual values of `DYNAMIC_KEY_ENCRYPTION_SECRET`, `DYNAMIC_KEY_INDEX_SECRET` and `BACKUP_ENCRYPTION_SECRET` are at least 32 characters, different, and recoverable from a protected out-of-band store. Never commit them here.
+2. Securely verify the actual values of `DYNAMIC_KEY_ENCRYPTION_SECRET` and `DYNAMIC_KEY_INDEX_SECRET` are at least 32 characters, different, and recoverable from a protected out-of-band store. `BACKUP_ENCRYPTION_SECRET` is only needed if the encrypted-backup helper is deliberately enabled; backups are disabled in this version. Never commit secret values here.
 3. Rotate PayPal/Brevo/Gemini/OpenRouter/Discord/Google credentials if they were exposed; move sensitive dashboard values to Secrets; resolve all variable/secret name collisions.
 4. Confirm whether sending prompts to Stable Horde is an approved data flow before enabling it in production.
 5. Configure Cloudflare Access/IP allowlisting for admin routes and verify OAuth login cannot bypass enforced 2FA; confirm actual cookie/session invalidation behavior.
