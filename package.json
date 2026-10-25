@@ -12,14 +12,15 @@
     "deploy:production": "node preflight_deploy_v18.mjs production && wrangler deploy --config wrangler.production_v18.jsonc",
     "test:email-flow": "node email_verification_flow_test.mjs",
     "test:keys-at-rest": "node key_at_rest_test_v18.mjs",
-    "test": "npm run check:syntax && npm run security:check && npm run test:email-flow && npm run test:keys-at-rest && npm run test:key-index-routes && npm run test:backup-migration-tools && npm run test:ui-theme && npm run test:paypal-mode && npm run test:stable-horde",
+    "test": "npm run check:syntax && npm run security:check && npm run test:email-flow && npm run test:keys-at-rest && npm run test:key-index-routes && npm run test:backup-migration-tools && npm run test:ui-theme && npm run test:paypal-mode && npm run test:stable-horde && npm run test:wrangler-dev",
     "test:key-index-routes": "node key_index_route_test_v18.mjs",
     "test:backup-migration-tools": "node backup_migration_tool_test_v18.mjs",
     "deploy:staging": "node preflight_deploy_v18.mjs staging && wrangler deploy --config wrangler.staging.jsonc",
     "test:ui-theme": "node ui_theme_test_v18.mjs",
     "test:paypal-mode": "node paypal_mode_test_v18.mjs",
-    "check:syntax": "node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js && node --check preflight_deploy_v18.mjs && node --check security_checks_v18.mjs && node --check email_verification_flow_test.mjs && node --check key_at_rest_test_v18.mjs && node --check key_index_route_test_v18.mjs && node --check backup_migration_tool_test_v18.mjs && node --check ui_theme_test_v18.mjs && node --check paypal_mode_test_v18.mjs && node --check stable_horde_test_v18.mjs",
-    "test:stable-horde": "node stable_horde_test_v18.mjs"
+    "check:syntax": "node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js && node --check preflight_deploy_v18.mjs && node --check security_checks_v18.mjs && node --check email_verification_flow_test.mjs && node --check key_at_rest_test_v18.mjs && node --check key_index_route_test_v18.mjs && node --check backup_migration_tool_test_v18.mjs && node --check ui_theme_test_v18.mjs && node --check paypal_mode_test_v18.mjs && node --check stable_horde_test_v18.mjs && node --check wrangler_dev_smoke_test.mjs",
+    "test:stable-horde": "node stable_horde_test_v18.mjs",
+    "test:wrangler-dev": "node wrangler_dev_smoke_test.mjs"
   },
   "type": "module"
 }
