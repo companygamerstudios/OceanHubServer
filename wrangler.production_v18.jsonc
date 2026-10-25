@@ -4,16 +4,16 @@
   "main": "OceanHub_SECURITY_PATCHED_FINAL_v18.js",
   "compatibility_date": "2026-09-27",
   "vars": {
-    "BASE_URL": "https://oceanhud.yoelenmanuelzorrilla.workers.dev",
-    "PAYPAL_MODE": "live",
-    "ADMIN_REQUIRE_2FA": "true",
-    "SENDER_NAME": "Ocean Hub",
-    "GEMINI_MODEL": "gemini-2.5-flash",
-    "OPENROUTER_MODEL": "openrouter/free",
-    "GEMINI_IMAGE_MODEL": "gemini-2.0-flash-preview-image-generation",
-    "AF_EXTRA_MODELS": "[]"
-    "AF_IMAGE_PROVIDER": "stablehorde"
-  },
+  "BASE_URL": "https://oceanhud.yoelenmanuelzorrilla.workers.dev",
+  "PAYPAL_MODE": "live",
+  "ADMIN_REQUIRE_2FA": "true",
+  "SENDER_NAME": "Ocean Hub",
+  "GEMINI_MODEL": "gemini-2.5-flash",
+  "OPENROUTER_MODEL": "openrouter/free",
+  "GEMINI_IMAGE_MODEL": "gemini-2.0-flash-preview-image-generation",
+  "AF_EXTRA_MODELS": "[]",
+  "AF_IMAGE_PROVIDER": "stablehorde"
+},
   "kv_namespaces": [
     {
       "binding": "STATS",
