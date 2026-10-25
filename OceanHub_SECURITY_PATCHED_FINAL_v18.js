@@ -2738,18 +2738,27 @@ async function handleMigrateKeyIndexHmac(env, request) {
     try { payload = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const ip = getClientIP(request);
     const failKey = `pin_fail_${ip}`;
+    const accountFailKey = `pin_fail_account_${await hashKey(String(auth.user.email || '').toLowerCase())}`;
     const failed = await env.STATS.get(failKey, 'json');
-    if (failed && failed.count >= PIN_BRUTE_LIMIT && Math.floor(Date.now() / 1000) - failed.first_fail < PIN_BRUTE_WINDOW) {
-        return jsonResponse({ error: 'Demasiados intentos de PIN. Espera 10 minutos.' }, 429);
+    const accountFailed = await env.STATS.get(accountFailKey, 'json');
+    const now = Math.floor(Date.now() / 1000);
+    if ((failed && failed.count >= PIN_BRUTE_LIMIT && now - failed.first_fail < PIN_BRUTE_WINDOW) ||
+        (accountFailed && accountFailed.count >= PIN_BRUTE_LIMIT && now - accountFailed.first_fail < PIN_BRUTE_WINDOW)) {
+        return jsonResponse({ error: 'Demasiados intentos de PIN para esta cuenta o IP. Espera 10 minutos.' }, 429);
     }
     const pin = typeof payload?.pin === 'string' ? payload.pin : '';
     if (!env.ADMIN_SECOND_PIN || !timingSafeCompare(pin, String(env.ADMIN_SECOND_PIN))) {
-        const record = failed || { count: 0, first_fail: Math.floor(Date.now() / 1000) };
+        const failTime = Math.floor(Date.now() / 1000);
+        const record = failed || { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(failKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
+        const accountRecord = accountFailed || { count: 0, first_fail: failTime };
+        accountRecord.count++;
+        await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
     }
     await env.STATS.delete(failKey);
+    await env.STATS.delete(accountFailKey);
     try {
         await getAtRestCryptoKey(env);
         await hashDynamicKey(env, 'v18-secret-validation');
@@ -2808,18 +2817,27 @@ async function handleEncryptKeysAtRest(env, request) {
     try { payload = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const ip = getClientIP(request);
     const failKey = `pin_fail_${ip}`;
+    const accountFailKey = `pin_fail_account_${await hashKey(String(auth.user.email || '').toLowerCase())}`;
     const failed = await env.STATS.get(failKey, 'json');
-    if (failed && failed.count >= PIN_BRUTE_LIMIT && Math.floor(Date.now() / 1000) - failed.first_fail < PIN_BRUTE_WINDOW) {
-        return jsonResponse({ error: 'Demasiados intentos de PIN. Espera 10 minutos.' }, 429);
+    const accountFailed = await env.STATS.get(accountFailKey, 'json');
+    const now = Math.floor(Date.now() / 1000);
+    if ((failed && failed.count >= PIN_BRUTE_LIMIT && now - failed.first_fail < PIN_BRUTE_WINDOW) ||
+        (accountFailed && accountFailed.count >= PIN_BRUTE_LIMIT && now - accountFailed.first_fail < PIN_BRUTE_WINDOW)) {
+        return jsonResponse({ error: 'Demasiados intentos de PIN para esta cuenta o IP. Espera 10 minutos.' }, 429);
     }
     const pin = typeof payload?.pin === 'string' ? payload.pin : '';
     if (!env.ADMIN_SECOND_PIN || !timingSafeCompare(pin, String(env.ADMIN_SECOND_PIN))) {
-        const record = failed || { count: 0, first_fail: Math.floor(Date.now() / 1000) };
+        const failTime = Math.floor(Date.now() / 1000);
+        const record = failed || { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(failKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
+        const accountRecord = accountFailed || { count: 0, first_fail: failTime };
+        accountRecord.count++;
+        await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
     }
     await env.STATS.delete(failKey);
+    await env.STATS.delete(accountFailKey);
 
     try {
         await getAtRestCryptoKey(env); // fail before changing data unless the encryption secret is configured
@@ -2906,23 +2924,31 @@ async function handleAdminAction(env, url, request) {
     const ip = getClientIP(request);
 
     const pinFailKey = `pin_fail_${ip}`;
+    const accountFailKey = `pin_fail_account_${await hashKey(String(auth.user.email || '').toLowerCase())}`;
     const failRecord = await env.STATS.get(pinFailKey, 'json');
-    if (failRecord && failRecord.count >= PIN_BRUTE_LIMIT) {
-        const now = Math.floor(Date.now() / 1000);
-        if (now - failRecord.first_fail < PIN_BRUTE_WINDOW) {
-            return jsonResponse({ error: 'Demasiados intentos de PIN. Espera 10 minutos.' }, 429);
-        } else await env.STATS.delete(pinFailKey);
+    const accountFailRecord = await env.STATS.get(accountFailKey, 'json');
+    const attemptNow = Math.floor(Date.now() / 1000);
+    if ((failRecord && failRecord.count >= PIN_BRUTE_LIMIT && attemptNow - failRecord.first_fail < PIN_BRUTE_WINDOW) ||
+        (accountFailRecord && accountFailRecord.count >= PIN_BRUTE_LIMIT && attemptNow - accountFailRecord.first_fail < PIN_BRUTE_WINDOW)) {
+        return jsonResponse({ error: 'Demasiados intentos de PIN para esta cuenta o IP. Espera 10 minutos.' }, 429);
     }
+    if (failRecord && attemptNow - failRecord.first_fail >= PIN_BRUTE_WINDOW) await env.STATS.delete(pinFailKey);
+    if (accountFailRecord && attemptNow - accountFailRecord.first_fail >= PIN_BRUTE_WINDOW) await env.STATS.delete(accountFailKey);
 
     const pin = typeof payload.pin === 'string' ? payload.pin : '';
     const adminPin = env.ADMIN_SECOND_PIN;
     if (!adminPin || !timingSafeCompare(String(pin || ''), String(adminPin))) {
-        let record = failRecord || { count: 0, first_fail: Math.floor(Date.now() / 1000) };
+        const failTime = Math.floor(Date.now() / 1000);
+        let record = failRecord || { count: 0, first_fail: failTime };
         record.count++;
         await env.STATS.put(pinFailKey, JSON.stringify(record), { expirationTtl: PIN_BRUTE_WINDOW });
+        let accountRecord = accountFailRecord || { count: 0, first_fail: failTime };
+        accountRecord.count++;
+        await env.STATS.put(accountFailKey, JSON.stringify(accountRecord), { expirationTtl: PIN_BRUTE_WINDOW });
         return jsonResponse({ error: 'PIN incorrecto' }, 403);
     }
     await env.STATS.delete(pinFailKey);
+    await env.STATS.delete(accountFailKey);
 
     const action = typeof payload.action === 'string' ? payload.action : '';
     const key = typeof payload.key === 'string' ? payload.key.trim() : '';
