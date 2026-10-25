@@ -7,6 +7,7 @@ This PR is a first, bounded remediation pass. It does not claim all 100 checklis
 - Random suffixes for admin log keys, short URLs, and fallback social slugs now use 16 random bytes (128 bits).
 - Adds HSTS to Worker responses.
 - The admin-only `/webhook/test` endpoint returns 410 unless `ALLOW_WEBHOOK_TEST=true` is explicitly configured.
+- Email addresses embedded in Discord/Telegram alert text are masked before sending.
 - Caps key CSV uploads at 2 MiB and 10,000 non-empty records.
 - Air Flow file/image upload paths enforce a bounded request size where `Content-Length` is present, a 10 MiB decoded-content limit, MIME allowlists and data-URL MIME consistency.
 - Stable Horde errors tell the user which upstream status failed without logging the upstream response body or the API key.
