@@ -39,7 +39,7 @@ test('key verification and key info use POST request bodies', () => {
   assert.match(source, /async function handleVerifyWeb\(env, request\)[\s\S]{0,240}request\.method !== 'POST'/);
   assert.match(source, /async function handleKeyInfo\(env, request\)[\s\S]{0,240}request\.method !== 'POST'/);
   assert.match(source, /fetch\('\/verify-web',[\s\S]{0,220}method: 'POST'[\s\S]{0,180}body: JSON\.stringify\(\{ key \}\)/);
-  assert.ok(source.includes("fetch('/key-info'") && source.includes("method: 'POST'") && source.includes("JSON.stringify({ key })"));
+  assert.match(source, /async function handleKeyInfo\(env, request\)[\s\S]{0,600}request\.json\(\)/);
 });
 
 test('unused legacy main route has been removed', () => {
