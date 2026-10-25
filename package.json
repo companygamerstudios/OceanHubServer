@@ -1,7 +1,7 @@
 {
   "name": "oceanhud",
   "private": true,
-  "description": "Ocean Hub v18 — Ocean Liquid Glass UI, fail-closed payments, HMAC key indexing, and no external object-storage dependency",
+  "description": "Ocean Hub v18 — Ocean Liquid Glass UI, and fail-closed payments, HMAC key indexing, and no external object-storage dependency",
   "devDependencies": {
     "wrangler": "^4.146.0"
   },
