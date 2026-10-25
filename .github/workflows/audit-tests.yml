@@ -1,0 +1,32 @@
+name: Audit branch checks
+
+on:
+  push:
+    branches:
+      - audit-hardening-2026-10-25
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --package-lock=false
+      - name: Run tests
+        run: npm test
+      - name: Check Node syntax
+        run: |
+          node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js
+          node --check preflight_deploy_v18.mjs
+          node --check security_checks_v18.mjs
