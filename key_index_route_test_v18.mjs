@@ -15,7 +15,7 @@ assert.equal(h1, h1Repeat, 'La misma clave y secreto deben producir el mismo ín
 assert.notEqual(h1, h2, 'Claves diferentes deben producir índices diferentes');
 const hOtherSecret = await hashDynamicKey({ ...env, DYNAMIC_KEY_INDEX_SECRET: 'other-' + 'O'.repeat(58) }, 'TEST-KEY-001');
 assert.notEqual(h1, hOtherSecret, 'Cambiar el secreto de índice debe cambiar el HMAC');
-await assert.rejects(() => hashDynamicKey({ ...env, DYNAMIC_KEY_INDEX_SECRET: 'short' }, 'TEST-KEY-001'), /32 caracteres/);
+await assert.rejects(() => hashDynamicKey({ ...env, DYNAMIC_KEY_INDEX_SECRET: 'short' }, 'TEST-KEY-001'), /demasiado corto/);
 await assert.rejects(() => hashDynamicKey({ ...env, DYNAMIC_KEY_INDEX_SECRET: env.DYNAMIC_KEY_ENCRYPTION_SECRET }, 'TEST-KEY-001'), /distinto/);
 
 for (const route of ['/verify','/verify-web','/key-info']) {
