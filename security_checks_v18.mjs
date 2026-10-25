@@ -6,7 +6,7 @@ const source = await read('./OceanHub_SECURITY_PATCHED_FINAL_v18.js');
 const production = JSON.parse(await read('./wrangler.production_v18.jsonc'));
 const local = JSON.parse(await read('./wrangler.jsonc'));
 const lockTest = JSON.parse(await read('./wrangler.test_v18.jsonc'));
-const staging = JSON.parse(await read('./wrangler.staging.template_v18.jsonc');
+const staging = JSON.parse(await read('./wrangler.staging.template_v18.jsonc'));
 const checks = [];
 function check(name, condition) {
   assert.ok(condition, name);
@@ -39,7 +39,7 @@ check('El STATS local es distinto del namespace STATS de producción', local.kv_
 check('El desarrollo local usa PayPal Sandbox', local.vars.PAYPAL_MODE === 'sandbox' && lockTest.vars.PAYPAL_MODE === 'sandbox');
 check('La plantilla de staging usa sandbox y exige sustituir el KV de marcador', staging.vars.PAYPAL_MODE === 'sandbox' && staging.kv_namespaces[0].id.includes('REPLACE_WITH'));
 check('La configuración local mantiene las claves fuera de vars', !Object.keys(local.vars).some(k => /API_KEY|SECRET|TOKEN|PASSWORD/i.test(k)));
-check('El preflight comprueba existencia de secretos sin imprimir valores', (await read('./preflight_deploy_v18.mjs')).includes('wrangler',) && (await read('./preflight_deploy_v18.mjs')).includes('Faltan secretos requeridos'));
+check('El preflight comprueba existencia de secretos sin imprimir valores', (await read('./preflight_deploy_v18.mjs')).includes('wrangler') && (await read('./preflight_deploy_v18.mjs')).includes('Faltan secretos requeridos'));
 
 const required = production.secrets.required;
 for (const name of [
