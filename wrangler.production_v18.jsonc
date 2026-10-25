@@ -34,21 +34,5 @@
       "storage": "sqlite"
     }
   },
-  "keep_vars": true,
-  "secrets": {
-    "required": [
-      "DYNAMIC_KEY_ENCRYPTION_SECRET",
-      "DYNAMIC_KEY_INDEX_SECRET",
-      "ADMIN_SECOND_PIN",
-      "TOTP_SECRET",
-      "HMAC_SECRET_CURRENT",
-      "PAYPAL_SECRET",
-      "PAYPAL_WEBHOOK_ID",
-      "BREVO_API_KEY",
-      "GEMINI_API_KEY",
-      "OPENROUTER_API_KEY",
-      "GOOGLE_CLIENT_SECRET",
-      "DISCORD_CLIENT_SECRET"
-    ]
-  }
+  "keep_vars": true
 }
