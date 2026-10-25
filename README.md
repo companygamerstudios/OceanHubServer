@@ -23,9 +23,11 @@ Production deployment is only available through:
 npm run deploy:production
 ```
 
-This runs the preflight and then deploys with `wrangler.production_v18.jsonc`. The preflight checks the required secret names in Cloudflare; it cannot read secret values and therefore cannot certify their length, uniqueness or correctness. Those checks require secure runtime verification or a manual secret manager review. The secret-name inventory is `required-secrets.production.json`; never put secret values in this repository.
+This runs the preflight and then deploys with `wrangler.production_v18.jsonc`. The preflight checks the required secret names in Cloudflare using Wrangler's supported `secrets.required` configuration field; it cannot read secret values and therefore cannot certify their length, uniqueness or correctness. Those checks require secure runtime verification or a manual secret manager review. This field contains names only; never put secret values in this repository. See the [official Wrangler configuration documentation](https://developers.cloudflare.com/workers/wrangler/configuration/).
 
 No staging Worker or KV namespace is created by this repository. Do not deploy staging until a separate Worker, independent KV namespace, separate Durable Object storage and PayPal Sandbox credentials have been created and tested. This repository does not auto-deploy from the quality workflow.
+
+The production config currently retains `keep_vars: true`: per Cloudflare's [Wrangler docs](https://developers.cloudflare.com/workers/wrangler/configuration/), that preserves dashboard variables not reconciled by the deployment. This can help avoid accidental deletion of dashboard-managed variables, but it also allows configuration drift. Do not remove it until the dashboard variables have been inventoried and the config is confirmed as the source of truth.
 
 ## Security remediation pass 1
 
