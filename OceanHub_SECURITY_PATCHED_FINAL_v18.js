@@ -400,7 +400,7 @@ async function sendAlert(env, message, severity = 'info', key = null, ip = null)
 
 async function logAdminAction(env, action, key, ip, details = {}) {
     const today = new Date().toISOString().slice(0, 10);
-    const logKey = `admin_log_${today}_${Date.now()}_${generateRandomHex(4)}`;
+    const logKey = `admin_log_${today}_${Date.now()}_${generateRandomHex(16)}`;
     const entry = {
         timestamp: new Date().toISOString(), action,
         key: typeof key === 'string' ? maskStoredKey(key) : null,
@@ -2001,7 +2001,8 @@ async function handlePrivacidad(env) {
     <p>Conservamos tus datos mientras tu cuenta esté activa. Si la eliminas, tus datos personales se borrarán en un plazo máximo de 30 días, excepto aquellos que debamos conservar por obligación legal.</p>
 
     <h2>6. Destinatarios</h2>
-    <p>Tus datos pueden ser comunicados a: proveedores de pago (PayPal), proveedores de correo electrónico (Brevo), proveedores de infraestructura (Cloudflare), y autoridades competentes cuando la ley lo exija.</p>
+    <p>Tus datos pueden ser tratados por proveedores de pago (PayPal), correo electrónico (Brevo), infraestructura (Cloudflare), y autoridades competentes cuando la ley lo exija.</p>
+    <p><strong>Funciones de inteligencia artificial:</strong> cuando usas Air Flow, el texto de tus prompts, el contexto necesario de la conversación y el contenido de archivos o imágenes que envíes pueden transmitirse, según la función y configuración activa, a Google Gemini, OpenRouter o Stable Horde para generar una respuesta o imagen. OpenRouter puede enrutar solicitudes al modelo elegido. No envíes contraseñas, claves de acceso, datos de pago ni información confidencial. Consulta también las políticas de cada proveedor de IA para conocer sus prácticas de tratamiento y conservación.</p>
 
     <h2>7. Tus derechos</h2>
     <p>Puedes ejercer los derechos de acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a nuestro correo de contacto. También tienes derecho a presentar una reclamación ante la autoridad de protección de datos de tu país.</p>
@@ -3414,13 +3415,16 @@ async function handleShorten(env, request) {
     if (!longUrl) return jsonResponse({ error: 'Falta parámetro url' }, 400);
     let parsedUrl; try { parsedUrl = new URL(longUrl); } catch { return jsonResponse({ error: 'URL inválida' }, 400); }
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) return jsonResponse({ error: 'Solo se permiten URLs HTTP/HTTPS' }, 400);
-    const id = generateRandomHex(4).toLowerCase();
+    const id = generateRandomHex(16).toLowerCase();
     await env.STATS.put(`short_${id}`, longUrl, { expirationTtl: 86400 * 30 });
     const short = `${url.origin}/s/${id}`;
     return jsonResponse({ short, id, original: longUrl });
 }
 
 async function handleWebhookTest(env) {
+    if (String(env.ALLOW_WEBHOOK_TEST || '').trim().toLowerCase() !== 'true') {
+        return jsonResponse({ error: 'Endpoint de prueba desactivado.' }, 410);
+    }
     await sendAlert(env, '🧪 Mensaje de prueba desde Ocean Hub Webhook', 'test');
     return jsonResponse({ status: 'test sent' });
 }
@@ -4364,6 +4368,9 @@ const AF_MAX_MESSAGE_CHARS = 6000;
 const AF_MAX_HISTORY_MESSAGES = 16;
 const AF_MAX_HISTORY_CHARS = 28000;
 const AF_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const AF_MAX_JSON_UPLOAD_BODY_BYTES = Math.ceil(AF_MAX_UPLOAD_BYTES * 1.5 + 100_000);
+const AF_ALLOWED_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const AF_ALLOWED_FILE_MIME = new Set(['text/plain', 'text/csv', 'application/json', 'application/pdf', 'application/vnd.ms-excel', 'image/png', 'image/jpeg', 'image/webp']);
 const AF_RATE_WINDOW = 60;
 const AF_RATE_MAX = 20;
 const AF_GEMINI_MODEL_DEFAULT = 'gemini-2.5-flash';
@@ -4938,12 +4945,17 @@ async function handleAirFlowVisionV11(env, request) {
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
     if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
     if (!(await afRateLimit(env, request, auth.user.email, 'vision'))) return jsonResponse({ error: 'Límite de visión alcanzado. Espera un momento.' }, 429);
+    const declaredBodyLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredBodyLength > AF_MAX_JSON_UPLOAD_BODY_BYTES) return jsonResponse({ error: 'La solicitud de imagen supera el límite permitido de 10 MB.' }, 413);
     let body;
     try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const data = String(body?.image?.data || '');
-    const mime = String(body?.image?.mimeType || 'image/png');
+    const mime = String(body?.image?.mimeType || 'image/png').split(';')[0].trim().toLowerCase();
     const prompt = String(body?.prompt || 'Analiza esta imagen con detalle. Si contiene texto, transcríbelo y explica lo importante.').slice(0, 3000);
     if (!data) return jsonResponse({ error: 'Falta la imagen.' }, 400);
+    if (!AF_ALLOWED_IMAGE_MIME.has(mime)) return jsonResponse({ error: 'Tipo de imagen no compatible. Usa PNG, JPEG o WebP.' }, 415);
+    const declaredMime = data.match(/^data:([^;,]+);base64,/i)?.[1]?.toLowerCase();
+    if (declaredMime && declaredMime !== mime) return jsonResponse({ error: 'El tipo MIME no coincide con los datos de la imagen.' }, 415);
     let rawBytes = 0;
     try { rawBytes = Math.floor(data.replace(/^data:[^;]+;base64,/, '').length * 0.75); } catch { rawBytes = AF_MAX_UPLOAD_BYTES + 1; }
     if (rawBytes > AF_MAX_UPLOAD_BYTES) return jsonResponse({ error: 'La imagen es demasiado grande.' }, 413);
@@ -4978,18 +4990,23 @@ async function handleAirFlowFileV11(env, request) {
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
     if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
     if (!(await afRateLimit(env, request, auth.user.email, 'file'))) return jsonResponse({ error: 'Límite de archivos alcanzado. Espera un momento.' }, 429);
+    const declaredBodyLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredBodyLength > AF_MAX_JSON_UPLOAD_BODY_BYTES) return jsonResponse({ error: 'La solicitud supera el límite permitido de 10 MB.' }, 413);
     let body;
     try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const file = body?.file || {};
     const data = String(file.data || '');
-    const mime = String(file.mimeType || 'text/plain');
+    const mime = String(file.mimeType || 'text/plain').split(';')[0].trim().toLowerCase();
     const name = String(file.name || 'archivo').slice(0, 160);
     const prompt = String(body?.prompt || `Analiza el archivo ${name}. Resume su contenido, detecta puntos importantes y responde según lo solicitado.`).slice(0, 3000);
     if (!data) return jsonResponse({ error: 'Falta el archivo.' }, 400);
+    if (!AF_ALLOWED_FILE_MIME.has(mime)) return jsonResponse({ error: 'Tipo de archivo no compatible. Usa texto, CSV, JSON, PDF, PNG, JPEG o WebP.' }, 415);
+    const declaredMime = data.match(/^data:([^;,]+);base64,/i)?.[1]?.toLowerCase();
+    if (declaredMime && declaredMime !== mime) return jsonResponse({ error: 'El tipo MIME no coincide con los datos del archivo.' }, 415);
     const cleanB64 = data.replace(/^data:[^;]+;base64,/, '');
     const rawBytes = Math.floor(cleanB64.length * 0.75);
     if (rawBytes > AF_MAX_UPLOAD_BYTES) return jsonResponse({ error: 'El archivo supera el límite de 10 MB.' }, 413);
-    if (/^(text\/|application\/(json|csv))/.test(mime)) {
+    if (/^(text\/|application\/(json|csv|vnd\.ms-excel))$/.test(mime)) {
         try {
             const text = await afReadFileAsText(data, mime);
             if (text) {
@@ -5217,7 +5234,7 @@ async function handleAirFlowCreateImageV11(env, request) {
             if (!response.ok || !data?.id) {
                 console.error('Air Flow Stable Horde submit failed with HTTP', response.status);
                 if (response.status === 401 || response.status === 403) {
-                    return jsonResponse({ error: 'Stable Horde rechazó la clave. Comprueba STABLE_HORDE_API_KEY en Cloudflare.' }, 502);
+                    return jsonResponse({ error: `Stable Horde rechazó la solicitud (HTTP ${response.status}). Revisa la clave y los permisos de la cuenta; el rechazo no confirma por sí solo cuál es la causa.` }, 502);
                 }
                 if (response.status === 429) {
                     return jsonResponse({ error: 'Stable Horde está limitando las solicitudes. Espera y vuelve a intentarlo.' }, 429);
@@ -5786,7 +5803,7 @@ body.af-has-messages .welcome{display:none!important}
  .empty-card p{display:none}
  .suggestions{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
  .suggestion{padding:8px;font-size:10px;min-height:38px}
- .disclaimer{display:none}
+ .disclaimer{display:block;font-size:8px;line-height:1.25}
 }
 </style>
 </head>
@@ -5847,7 +5864,7 @@ body.af-has-messages .welcome{display:none!important}
             </div>
           </div>
         </div>
-        <div class="disclaimer">Air Flow puede equivocarse. Para información actual, activa Research o usa preguntas verificables. Nunca compartas claves, contraseñas o datos privados.</div>
+        <div class="disclaimer">Air Flow puede equivocarse. Tus prompts, contexto y archivos pueden enviarse a Gemini, OpenRouter o Stable Horde según la función y configuración. No compartas claves, contraseñas ni datos sensibles. Consulta la <a href="/privacidad">política de privacidad</a>.</div>
       </div>
     </section>
   </main>
@@ -7964,15 +7981,23 @@ async function handleBackup(env, request) {
 async function handleUploadKeys(env, request) {
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
-    const formData = await request.formData();
+    const declaredLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredLength > 2 * 1024 * 1024 + 64 * 1024) return jsonResponse({ error: 'El CSV supera el límite de 2 MB.' }, 413);
+    let formData;
+    try { formData = await request.formData(); } catch { return jsonResponse({ error: 'Formulario de subida no válido.' }, 400); }
     const file = formData.get('file');
     const pin = formData.get('pin');
     const adminPin = env.ADMIN_SECOND_PIN;
     if (!adminPin || !timingSafeCompare(String(pin || ''), String(adminPin))) return jsonResponse({ error: 'PIN incorrecto' }, 403);
-    if (!file) return jsonResponse({ error: 'No se subió ningún archivo' }, 400);
-
+    if (!file || typeof file.size !== 'number') return jsonResponse({ error: 'No se subió ningún archivo válido.' }, 400);
+    if (file.size > 2 * 1024 * 1024) return jsonResponse({ error: 'El CSV supera el límite de 2 MB.' }, 413);
+    const uploadMime = String(file.type || '').toLowerCase();
+    if (uploadMime && !['text/csv', 'text/plain', 'application/vnd.ms-excel', 'application/octet-stream'].includes(uploadMime)) {
+        return jsonResponse({ error: 'Formato no compatible. Sube un archivo CSV o TXT.' }, 415);
+    }
     const text = await file.text();
-    const lines = text.split('\n').filter(l => l.trim());
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length > 10000) return jsonResponse({ error: 'El CSV supera el límite de 10 000 líneas.' }, 413);
     let generated = 0;
     for (const line of lines) {
         const key = line.trim();
@@ -8889,7 +8914,7 @@ async function socialEnsureUniqueUsername(env, baseName) {
         const taken = await env.STATS.get(`username_${candidate.toLowerCase()}`);
         if (!taken) return candidate;
     }
-    return socialSlugify(base + generateRandomHex(4));
+    return socialSlugify(base + generateRandomHex(16));
 }
 
 async function socialGetUserByUsername(env, username) {
@@ -10034,6 +10059,8 @@ export async function applySecurityHeaders(response) {
     headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     headers.set('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
     headers.set('X-Frame-Options', 'DENY');
+    // HSTS protects future visits over HTTPS; deliberately omit includeSubDomains.
+    headers.set('Strict-Transport-Security', 'max-age=31536000');
     return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
 
