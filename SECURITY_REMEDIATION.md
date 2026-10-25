@@ -3,6 +3,7 @@
 This PR is a first, bounded remediation pass. It does not claim all 100 checklist items are complete.
 
 ## Implemented in this branch
+- Removed `handleMainRoute` after verifying its only occurrence was its unused declaration.
 
 - Random suffixes for admin log keys, short URLs, and fallback social slugs now use 16 random bytes (128 bits).
 - Adds HSTS to Worker responses.
