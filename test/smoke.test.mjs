@@ -5,7 +5,6 @@ import worker, { getPayPalMode } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js
 
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
-const inventory = JSON.parse(await readFile(new URL('../required-secrets.production.json', import.meta.url), 'utf8'));
 const local = JSON.parse(await readFile(new URL('../wrangler.local.jsonc', import.meta.url), 'utf8'));
 
 test('PayPal mode accepts only explicit sandbox/live values', () => {
@@ -23,11 +22,11 @@ test('local development uses a separate Worker and PayPal sandbox', () => {
   assert.notEqual(local.vars.BASE_URL, production.vars.BASE_URL);
 });
 
-test('production deployment config contains no non-standard secrets field', () => {
+test('production config declares required Worker secrets using Wrangler secrets.required', () => {
   assert.equal(production.name, 'oceanhud');
   assert.equal(production.vars.PAYPAL_MODE, 'live');
-  assert.equal(Object.hasOwn(production, 'secrets'), false);
-  assert.ok(inventory.required.includes('STABLE_HORDE_API_KEY'));
+  assert.ok(Array.isArray(production.secrets?.required));
+  assert.ok(production.secrets.required.includes('STABLE_HORDE_API_KEY'));
 });
 
 test('sensitive SSE route is covered by the admin gate', () => {
