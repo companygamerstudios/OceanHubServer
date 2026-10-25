@@ -8,8 +8,9 @@ const sourcePath = join(root, 'OceanHub_SECURITY_PATCHED_FINAL_v18.js');
 const configPath = join(root, 'wrangler.production_v18.jsonc');
 const preflightPath = join(root, 'preflight_deploy_v18.mjs');
 const packagePath = join(root, 'package.json');
+const gitignorePath = join(root, '.gitignore');
 
-for (const path of [sourcePath, configPath, preflightPath, packagePath]) {
+for (const path of [sourcePath, configPath, preflightPath, packagePath, gitignorePath]) {
   assert.ok(existsSync(path), `Falta el archivo requerido: ${path}`);
 }
 
@@ -17,6 +18,10 @@ const source = readFileSync(sourcePath, 'utf8');
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
 const preflight = readFileSync(preflightPath, 'utf8');
 const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
+const gitignore = readFileSync(gitignorePath, 'utf8');
+assert.match(gitignore, /^\.wrangler\/$/m, 'El estado local de Wrangler debe quedar fuera de Git.');
+assert.match(gitignore, /^\.dev\.vars$/m, 'Los secretos locales deben quedar fuera de Git.');
+assert.match(gitignore, /^node_modules\/$/m, 'Las dependencias instaladas no deben entrar al repositorio.');
 
 assert.equal(config.name, 'oceanhud', 'El archivo de producción debe apuntar al Worker esperado.');
 assert.equal(config.vars?.PAYPAL_MODE, 'live', 'La configuración de producción debe declarar live explícitamente.');
