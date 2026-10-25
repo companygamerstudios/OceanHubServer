@@ -5006,7 +5006,7 @@ async function handleAirFlowFileV11(env, request) {
     const cleanB64 = data.replace(/^data:[^;]+;base64,/, '');
     const rawBytes = Math.floor(cleanB64.length * 0.75);
     if (rawBytes > AF_MAX_UPLOAD_BYTES) return jsonResponse({ error: 'El archivo supera el límite de 10 MB.' }, 413);
-    if (/^(text\/|application\/(json|csv|vnd\.ms-excel))$/.test(mime)) {
+    if (/^(text\/.+|application\/(json|csv|vnd\.ms-excel))$/.test(mime)) {
         try {
             const text = await afReadFileAsText(data, mime);
             if (text) {
