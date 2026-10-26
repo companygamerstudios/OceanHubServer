@@ -9569,9 +9569,10 @@ async function handlePartiesPage(env, request) {
         if (!(await checkActionRateLimit(env, 'community-party-create', me.email, 4, 3600))) return communityErrorResponse(request, 'Límite alcanzado', 'Puedes crear hasta 4 parties por hora.', '/parties');
         const form = await request.formData(), title = String(form.get('title') || '').trim(), game = String(form.get('game') || '').trim(), description = String(form.get('description') || '').trim();
         const maxPlayers = Math.max(2, Math.min(20, Math.floor(Number(form.get('max_players')) || 4)));
+        const isPrivate = String(form.get('visibility') || 'public') === 'private';
         if (title.length < 3 || title.length > 80 || game.length < 2 || game.length > 40 || description.length > 240) return communityErrorResponse(request, 'Datos no válidos', 'Título: 3–80 caracteres; juego: 2–40; descripción: máximo 240.', '/parties');
         const id = generateRandomHex(16), now = Date.now();
-        const party = { id, title, game, description, host_email: me.email.toLowerCase(), host_username: me.username, members: [me.email.toLowerCase()], max_players: maxPlayers, cancelled: false, created_at: new Date(now).toISOString(), expires_at: new Date(now + 12 * 3600000).toISOString() };
+        const party = { id, title, game, description, host_email: me.email.toLowerCase(), host_username: me.username, members: [me.email.toLowerCase()], invited_emails: [], is_private: isPrivate, max_players: maxPlayers, cancelled: false, created_at: new Date(now).toISOString(), expires_at: new Date(now + 12 * 3600000).toISOString() };
         await env.STATS.put('oh_party_' + id, JSON.stringify(party), { expirationTtl: 259200 });
         try { await communityIndexAdd(env, 'oh_party_', 'oh_party_' + id); } catch (_) { await env.STATS.delete('oh_party_' + id); return communityErrorResponse(request, 'No se pudo crear la party', 'Inténtalo de nuevo en un momento.', '/parties'); }
         try { await communityAwardXp(env, me.email, 15, 'party-create', id); } catch (_) {}
@@ -9581,16 +9582,20 @@ async function handlePartiesPage(env, request) {
     const parties = (await communityListRecords(env, 'oh_party_', 100)).filter(p => !p.cancelled && Date.parse(p.expires_at || '') > Date.now()).sort((a,b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 40);
     const cards = [];
     for (const p of parties) {
-        if (p.host_email !== me.email.toLowerCase() && await socialIsBlockedEither(env, me.email, p.host_email)) continue;
-        const members = Array.isArray(p.members) ? p.members : [], full = members.length >= Number(p.max_players || 4), isMember = members.includes(me.email.toLowerCase());
+        const meEmail = me.email.toLowerCase();
+        const members = Array.isArray(p.members) ? p.members : [];
+        const invites = Array.isArray(p.invited_emails) ? p.invited_emails : [];
+        if (p.is_private && p.host_email !== meEmail && !members.includes(meEmail) && !invites.includes(meEmail)) continue;
+        if (p.host_email !== meEmail && await socialIsBlockedEither(env, me.email, p.host_email)) continue;
+        const full = members.length >= Number(p.max_players || 4), isMember = members.includes(meEmail);
         let action = '';
-        if (p.host_email === me.email.toLowerCase()) action = '<form method="post" action="/parties/' + p.id + '/cancel"><button class="btn danger">Cerrar party</button></form>';
+        if (p.host_email === me.email.toLowerCase()) action = '<div style="display:flex;gap:8px;flex-wrap:wrap"><form method="post" action="/parties/' + p.id + '/cancel"><button class="btn danger">Cerrar party</button></form><form method="post" action="/parties/' + p.id + '/invite" style="display:flex;gap:6px;flex-wrap:wrap"><input name="target" required maxlength="254" placeholder="Username/email para invitar" style="max-width:230px"><button class="btn ghost">Invitar</button></form></div>';
         else if (isMember) action = '<form method="post" action="/parties/' + p.id + '/leave"><button class="btn ghost">Salir</button></form>';
         else if (!full) action = '<form method="post" action="/parties/' + p.id + '/join"><button class="btn">Unirme</button></form>';
         else action = '<span class="muted">Completa</span>';
         cards.push('<div class="card"><div class="row"><div><h2>' + escapeHTML(p.title) + '</h2><div class="muted">🎮 ' + escapeHTML(p.game) + ' · Host @' + escapeHTML(p.host_username) + '</div></div><b>' + members.length + '/' + p.max_players + '</b></div>' + (p.description ? '<p style="margin:10px 0;white-space:pre-wrap">' + escapeHTML(p.description) + '</p>' : '') + '<div class="row"><span class="muted">Abierta hasta ' + escapeHTML(String(p.expires_at || '').slice(0,16).replace('T',' ')) + ' UTC</span>' + action + '</div></div>');
     }
-    const body = '<h1>🎮 Game Party</h1><p class="muted">Encuentra gente para jugar. Las parties caducan tras 12 horas y el anfitrión puede cerrarlas.</p><div class="card"><h2>Crear una party</h2><form method="post" action="/parties"><label>Título</label><input name="title" maxlength="80" minlength="3" required placeholder="Ej. Roblox con la crew"><label>Juego</label><input name="game" maxlength="40" minlength="2" required placeholder="Roblox, Minecraft…"><label>Descripción (opcional)</label><textarea name="description" maxlength="240" rows="2" placeholder="Modo de juego, objetivo o requisitos"></textarea><label>Máximo de jugadores (2–20)</label><input name="max_players" type="number" min="2" max="20" value="4" required><button class="btn" style="margin-top:10px">Crear party</button></form></div><h2>Parties abiertas</h2>' + (cards.join('') || '<div class="card">No hay parties abiertas. ¡Crea la primera!</div>');
+    const body = '<h1>🎮 Game Party</h1><p class="muted">Encuentra gente para jugar. Las parties caducan tras 12 horas y el anfitrión puede cerrarlas.</p><div class="card"><h2>Crear una party</h2><form method="post" action="/parties"><label>Título</label><input name="title" maxlength="80" minlength="3" required placeholder="Ej. Roblox con la crew"><label>Juego</label><input name="game" maxlength="40" minlength="2" required placeholder="Roblox, Minecraft…"><label>Descripción (opcional)</label><textarea name="description" maxlength="240" rows="2" placeholder="Modo de juego, objetivo o requisitos"></textarea><label>Privacidad</label><select name="visibility" style="width:100%;background:#081828;border:1px solid var(--line);color:var(--text);border-radius:12px;padding:10px 12px"><option value="public">Pública — cualquiera puede unirse</option><option value="private">Privada — solo invitados</option></select><label>Máximo de jugadores (2–20)</label><input name="max_players" type="number" min="2" max="20" value="4" required><button class="btn" style="margin-top:10px">Crear party</button></form></div><h2>Parties abiertas</h2>' + (cards.join('') || '<div class="card">No hay parties abiertas. ¡Crea la primera!</div>');
     return communityPageResponse('Game Party', body);
 }
 async function handlePartyAction(env, request, id, action) {
@@ -9608,6 +9613,7 @@ async function handlePartyAction(env, request, id, action) {
                 if (party.host_email !== email) return { error: 'Solo el anfitrión puede cerrar la party.' };
                 party.cancelled = true;
             } else if (action === 'join') {
+                if (party.is_private && !(Array.isArray(party.invited_emails) && party.invited_emails.includes(email)) && party.host_email !== email) return { error: 'Esta party es privada: necesitas una invitación del anfitrión.' };
                 if (party.members.includes(email)) return { ok: true, already: true };
                 if (await socialIsBlockedEither(env, email, party.host_email)) return { error: 'No puedes unirte a esta party.' };
                 if (party.members.length >= Number(party.max_players || 4)) return { error: 'La party está completa.' };
@@ -9760,6 +9766,179 @@ async function handleEventAction(env, request, id, action) {
     return communityRedirect(request, '/events');
 }
 
+async function handlePartyInvite(env, request, id) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
+    if (request.method !== 'POST') return new Response('Método no permitido', { status: 405 });
+    const me = await socialEnsureUserMeta(env, auth.user);
+    const form = await request.formData();
+    const target = String(form.get('target') || '').trim();
+    if (!target || target.length > 254) return communityErrorResponse(request, 'Invitación no válida', 'Indica un username o email.', '/parties');
+    const party = await env.STATS.get('oh_party_' + id, 'json');
+    if (!party || party.cancelled || party.host_email !== me.email.toLowerCase()) return communityErrorResponse(request, 'No permitido', 'Solo el anfitrión puede invitar a una party activa.', '/parties');
+    const user = target.includes('@') ? await getUserByEmail(env, target.toLowerCase()) : await socialGetUserByUsername(env, target);
+    if (!user) return communityErrorResponse(request, 'Usuario no encontrado', 'Comprueba el username o email.', '/parties');
+    const email = String(user.email || '').toLowerCase();
+    if (!email || email === me.email.toLowerCase()) return communityErrorResponse(request, 'Invitación no válida', 'No puedes invitarte a ti mismo.', '/parties');
+    if (await socialIsBlockedEither(env, me.email, email)) return communityErrorResponse(request, 'Invitación no permitida', 'No se puede invitar a esa cuenta.', '/parties');
+    party.invited_emails = Array.isArray(party.invited_emails) ? party.invited_emails : [];
+    if (!party.invited_emails.includes(email) && !(party.members || []).includes(email)) party.invited_emails.push(email);
+    await env.STATS.put('oh_party_' + id, JSON.stringify(party), { expirationTtl: 259200 });
+    try { await socialPushNotif(env, email, { type: 'party_invite', title: 'Invitación a Game Party', body: '@' + me.username + ' te invita a jugar ' + String(party.game || 'un juego') + '.', from_username: me.username, href: '/parties' }); } catch (_) {}
+    return communityRedirect(request, '/parties');
+}
+
+async function handleCreatorStudioPage(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
+    const me = await socialEnsureUserMeta(env, auth.user), email = me.email.toLowerCase();
+    if (request.method === 'POST') {
+        const form = await request.formData(), action = String(form.get('action') || 'create');
+        if (action === 'delete') {
+            const id = String(form.get('id') || '');
+            if (!/^[a-f0-9]{32}$/.test(id)) return communityErrorResponse(request, 'Proyecto no válido', 'Comprueba el proyecto.', '/creator-studio');
+            const project = await env.STATS.get('oh_creator_project_' + id, 'json');
+            if (!project || project.owner_email !== email) return communityErrorResponse(request, 'No permitido', 'Solo puedes eliminar tus propios proyectos.', '/creator-studio');
+            project.deleted = true; project.updated_at = new Date().toISOString();
+            await env.STATS.put('oh_creator_project_' + id, JSON.stringify(project), { expirationTtl: 7776000 });
+            return communityRedirect(request, '/creator-studio');
+        }
+        if (!(await checkActionRateLimit(env, 'creator-project-create', email, 5, 86400))) return communityErrorResponse(request, 'Límite alcanzado', 'Puedes crear hasta 5 fichas al día.', '/creator-studio');
+        const title = String(form.get('title') || '').trim().slice(0, 80);
+        const category = String(form.get('category') || 'Juego').trim().slice(0, 30);
+        const summary = String(form.get('summary') || '').trim().slice(0, 600);
+        const link = String(form.get('link') || '').trim().slice(0, 300);
+        if (title.length < 3 || summary.length < 10 || (link && !/^https?:\/\//i.test(link))) return communityErrorResponse(request, 'Datos incompletos', 'Añade un título, un resumen de 10 caracteres y un enlace http(s) válido si lo usas.', '/creator-studio');
+        const id = generateRandomHex(16);
+        const record = { id: id, title: title, category: category, summary: summary, link: link, owner_email: email, owner_username: me.username, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), deleted: false };
+        await env.STATS.put('oh_creator_project_' + id, JSON.stringify(record), { expirationTtl: 7776000 });
+        await withKVLock(env, 'oh-creator-index', async () => {
+            const ids = await env.STATS.get('oh_creator_project_index', 'json') || [];
+            ids.unshift(id); await env.STATS.put('oh_creator_project_index', JSON.stringify([...new Set(ids)].slice(0, 1000)));
+        });
+        try { await communityAwardXp(env, email, 20, 'creator-project', id); } catch (_) {}
+        return communityRedirect(request, '/creator-studio');
+    }
+    if (request.method !== 'GET') return new Response('Método no permitido', { status: 405 });
+    const ids = await env.STATS.get('oh_creator_project_index', 'json') || [], projects = [];
+    for (const id of ids.slice(0, 80)) {
+        const p = await env.STATS.get('oh_creator_project_' + id, 'json');
+        if (p && !p.deleted) projects.push(p);
+    }
+    const cards = projects.map(p => '<div class="card"><div class="row"><h2>' + escapeHTML(p.title) + '</h2><span class="muted">' + escapeHTML(p.category || 'Juego') + '</span></div><p class="muted">Por @' + escapeHTML(p.owner_username || 'creador') + ' · ' + escapeHTML(String(p.created_at || '').slice(0, 10)) + '</p><p style="white-space:pre-wrap">' + escapeHTML(p.summary || '') + '</p>' + (p.link && /^https?:\/\//i.test(p.link) ? '<p><a target="_blank" rel="noopener noreferrer" href="' + escapeHTML(p.link) + '">Abrir proyecto ↗</a></p>' : '') + (p.owner_email === email ? '<form method="post" action="/creator-studio"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' + escapeHTML(p.id) + '"><button class="btn danger">Eliminar mi ficha</button></form>' : '') + '</div>').join('');
+    const body = '<h1>🎨 Ocean Creator Studio</h1><p class="muted">Publica fichas para tus juegos, prototipos, experiencias y proyectos. Solo se publica lo que envías aquí.</p>' +
+        '<div class="card"><h2>Publicar proyecto</h2><form method="post" action="/creator-studio"><label>Título</label><input name="title" minlength="3" maxlength="80" required placeholder="Nombre del juego o proyecto"><label>Categoría</label><input name="category" maxlength="30" value="Juego" placeholder="Juego, mapa, arte…"><label>Resumen</label><textarea name="summary" minlength="10" maxlength="600" rows="4" required placeholder="Qué estás creando y qué lo hace especial"></textarea><label>Enlace público (opcional)</label><input type="url" name="link" maxlength="300" placeholder="https://…"><button class="btn" style="margin-top:10px">Publicar ficha (+20 XP)</button></form></div>' +
+        '<h2>Proyectos de la comunidad</h2>' + (cards || '<div class="card">Todavía no hay proyectos. ¡Publica el primero!</div>');
+    return new Response(socialShell('Ocean Creator Studio', body), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
+async function handleArenaPage(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
+    const me = await socialEnsureUserMeta(env, auth.user), email = me.email.toLowerCase();
+    if (request.method === 'POST') {
+        if (!(await checkActionRateLimit(env, 'arena-tournament-create', email, 3, 86400))) return communityErrorResponse(request, 'Límite alcanzado', 'Puedes organizar hasta 3 torneos al día.', '/arena');
+        const form = await request.formData();
+        const title = String(form.get('title') || '').trim().slice(0, 80), game = String(form.get('game') || '').trim().slice(0, 40);
+        const description = String(form.get('description') || '').trim().slice(0, 300);
+        const starts = Date.parse(String(form.get('starts_at') || ''));
+        const maxPlayers = Math.max(2, Math.min(128, Math.floor(Number(form.get('max_players')) || 16)));
+        if (title.length < 3 || game.length < 2 || !Number.isFinite(starts) || starts < Date.now() + 5 * 60000 || starts > Date.now() + 90 * 86400000) return communityErrorResponse(request, 'Datos del torneo no válidos', 'La fecha debe estar entre 5 minutos y 90 días desde ahora.', '/arena');
+        const id = generateRandomHex(16), record = { id: id, title: title, game: game, description: description, organizer_email: email, organizer_username: me.username, entrants: [email], max_players: maxPlayers, starts_at: new Date(starts).toISOString(), created_at: new Date().toISOString(), cancelled: false };
+        await env.STATS.put('oh_tourney_' + id, JSON.stringify(record), { expirationTtl: 7776000 });
+        await withKVLock(env, 'oh-tourney-index', async () => {
+            const ids = await env.STATS.get('oh_tourney_index', 'json') || [];
+            ids.unshift(id); await env.STATS.put('oh_tourney_index', JSON.stringify([...new Set(ids)].slice(0, 1000)));
+        });
+        try { await communityAwardXp(env, email, 30, 'arena-tournament', id); } catch (_) {}
+        return communityRedirect(request, '/arena');
+    }
+    if (request.method !== 'GET') return new Response('Método no permitido', { status: 405 });
+    const ids = await env.STATS.get('oh_tourney_index', 'json') || [], rows = [];
+    for (const id of ids.slice(0, 80)) {
+        const t = await env.STATS.get('oh_tourney_' + id, 'json');
+        if (t && !t.cancelled && Date.parse(t.starts_at || '') > Date.now() - 86400000) rows.push(t);
+    }
+    const cards = rows.map(t => {
+        const entrants = Array.isArray(t.entrants) ? t.entrants : [], joined = entrants.includes(email), full = entrants.length >= Number(t.max_players || 16);
+        let action = '';
+        if (t.organizer_email === email) action = '<form method="post" action="/arena/' + t.id + '/cancel"><button class="btn danger">Cancelar torneo</button></form>';
+        else if (joined) action = '<form method="post" action="/arena/' + t.id + '/leave"><button class="btn ghost">Retirarme</button></form>';
+        else if (!full) action = '<form method="post" action="/arena/' + t.id + '/join"><button class="btn">Inscribirme</button></form>';
+        else action = '<span class="muted">Inscripción completa</span>';
+        return '<div class="card"><div class="row"><h2>' + escapeHTML(t.title) + '</h2><b>' + entrants.length + '/' + escapeHTML(String(t.max_players)) + '</b></div><div class="muted">🎮 ' + escapeHTML(t.game) + ' · Organiza @' + escapeHTML(t.organizer_username || 'jugador') + '</div><p>Inicio: ' + escapeHTML(String(t.starts_at || '').slice(0, 16).replace('T', ' ')) + ' UTC</p><p style="white-space:pre-wrap">' + escapeHTML(t.description || '') + '</p>' + action + '</div>';
+    }).join('');
+    const body = '<h1>🏟️ Ocean Arena</h1><p class="muted">Organiza torneos y gestiona inscripciones. La plataforma gestiona participantes; resultados y premios los definen los organizadores.</p>' +
+        '<div class="card"><h2>Crear torneo</h2><form method="post" action="/arena"><label>Nombre</label><input name="title" required minlength="3" maxlength="80" placeholder="Torneo Ocean Clash"><label>Juego</label><input name="game" required minlength="2" maxlength="40" placeholder="Roblox, Minecraft…"><label>Descripción / reglas</label><textarea name="description" maxlength="300" rows="3"></textarea><label>Fecha y hora de inicio</label><input name="starts_at" type="datetime-local" required><label>Máximo de participantes (2–128)</label><input name="max_players" type="number" min="2" max="128" value="16" required><button class="btn" style="margin-top:10px">Crear torneo (+30 XP)</button></form></div><h2>Torneos abiertos</h2>' + (cards || '<div class="card">Todavía no hay torneos abiertos.</div>');
+    return new Response(socialShell('Ocean Arena', body), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
+async function handleArenaAction(env, request, id, action) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
+    if (request.method !== 'POST') return new Response('Método no permitido', { status: 405 });
+    const me = await socialEnsureUserMeta(env, auth.user), email = me.email.toLowerCase();
+    let result;
+    try {
+        result = await withKVLock(env, 'oh-tourney:' + id, async () => {
+            const key = 'oh_tourney_' + id, t = await env.STATS.get(key, 'json');
+            if (!t || t.cancelled) return { error: 'El torneo ya no está disponible.' };
+            t.entrants = Array.isArray(t.entrants) ? t.entrants : [];
+            if (action === 'cancel') {
+                if (t.organizer_email !== email) return { error: 'Solo el organizador puede cancelar el torneo.' };
+                t.cancelled = true;
+            } else if (action === 'join') {
+                if (Date.parse(t.starts_at || '') <= Date.now()) return { error: 'La inscripción está cerrada.' };
+                if (t.entrants.includes(email)) return { ok: true, already: true };
+                if (t.entrants.length >= Number(t.max_players || 16)) return { error: 'El torneo está completo.' };
+                if (await socialIsBlockedEither(env, email, t.organizer_email)) return { error: 'No puedes inscribirte en este torneo.' };
+                t.entrants.push(email);
+            } else if (action === 'leave') {
+                if (t.organizer_email === email) return { error: 'El organizador debe cancelar el torneo, no retirarse.' };
+                if (!t.entrants.includes(email)) return { error: 'No estás inscrito.' };
+                t.entrants = t.entrants.filter(x => x !== email);
+            } else return { error: 'Acción no reconocida.' };
+            await env.STATS.put(key, JSON.stringify(t), { expirationTtl: 7776000 });
+            return { ok: true };
+        });
+    } catch (error) {
+        console.error('Ocean Arena action failed:', error?.message || error);
+        return communityErrorResponse(request, 'No se pudo actualizar el torneo', 'Inténtalo de nuevo.', '/arena');
+    }
+    if (result && result.error) return communityErrorResponse(request, 'Acción no completada', result.error, '/arena');
+    if (action === 'join' && !(result && result.already)) { try { await communityAwardXp(env, email, 10, 'arena-join', id); } catch (_) {} }
+    return communityRedirect(request, '/arena');
+}
+
+async function handleAirFlowStudioPage(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
+    const me = await socialEnsureUserMeta(env, auth.user), email = me.email.toLowerCase();
+    if (request.method === 'POST') {
+        if (!(await checkActionRateLimit(env, 'air-flow-studio-draft', email, 10, 86400))) return communityErrorResponse(request, 'Límite alcanzado', 'Puedes guardar hasta 10 borradores al día.', '/air-flow-studio');
+        const form = await request.formData(), title = String(form.get('title') || '').trim().slice(0, 80), prompt = String(form.get('prompt') || '').trim().slice(0, 4000);
+        if (title.length < 2 || prompt.length < 10) return communityErrorResponse(request, 'Borrador incompleto', 'Añade un título y un prompt de al menos 10 caracteres.', '/air-flow-studio');
+        const id = generateRandomHex(16), record = { id: id, title: title, prompt: prompt, owner_email: email, owner_username: me.username, created_at: new Date().toISOString() };
+        await env.STATS.put('oh_afstudio_' + id, JSON.stringify(record), { expirationTtl: 7776000 });
+        await withKVLock(env, 'oh-afstudio-index', async () => {
+            const ids = await env.STATS.get('oh_afstudio_index', 'json') || [];
+            ids.unshift(id); await env.STATS.put('oh_afstudio_index', JSON.stringify([...new Set(ids)].slice(0, 1000)));
+        });
+        return communityRedirect(request, '/air-flow-studio');
+    }
+    if (request.method !== 'GET') return new Response('Método no permitido', { status: 405 });
+    const ids = await env.STATS.get('oh_afstudio_index', 'json') || [], drafts = [];
+    for (const id of ids.slice(0, 100)) {
+        const d = await env.STATS.get('oh_afstudio_' + id, 'json');
+        if (d && d.owner_email === email) drafts.push(d);
+    }
+    const cards = drafts.map(d => '<div class="card"><b>' + escapeHTML(d.title) + '</b><p class="muted">Guardado: ' + escapeHTML(String(d.created_at || '').slice(0, 16).replace('T', ' ')) + ' UTC</p><textarea class="af-draft" rows="5" readonly>' + escapeHTML(d.prompt) + '</textarea><div class="row" style="margin-top:8px"><button class="btn copy-af" type="button">Copiar prompt</button><button class="btn ghost open-af" type="button">Copiar y abrir Air Flow ↗</button></div></div>').join('');
+    const body = '<h1>🧪 Air Flow Studio</h1><p class="muted">Prepara y guarda prompts reutilizables sin reemplazar Air Flow. Los borradores son privados para tu cuenta.</p><div class="card"><div class="row"><div><h2>Continuar en Air Flow</h2><p class="muted">Abre el asistente completo, con sus modos y proveedores actuales.</p></div><a class="btn" href="/air-flow">Abrir Air Flow ↗</a></div></div>' +
+        '<div class="card"><h2>Nuevo borrador</h2><form method="post" action="/air-flow-studio"><label>Título</label><input name="title" maxlength="80" required placeholder="Ej. Diseño de boss para Roblox"><label>Prompt</label><textarea name="prompt" maxlength="4000" minlength="10" rows="6" required placeholder="Objetivo, contexto, restricciones y resultado esperado…"></textarea><button class="btn" style="margin-top:10px">Guardar borrador</button></form></div><h2>Mis borradores</h2>' + (cards || '<div class="card">Todavía no tienes borradores.</div>');
+    const js = "document.querySelectorAll('.copy-af').forEach(function(b){b.onclick=async function(){var t=b.closest('.card').querySelector('.af-draft');try{await navigator.clipboard.writeText(t.value);b.textContent='Copiado';}catch(e){t.focus();t.select();document.execCommand('copy');b.textContent='Copiado';}}});document.querySelectorAll('.open-af').forEach(function(b){b.onclick=async function(){var t=b.closest('.card').querySelector('.af-draft');try{await navigator.clipboard.writeText(t.value);}catch(e){t.focus();t.select();document.execCommand('copy');}location.href='/air-flow';}});";
+    return new Response(socialShell('Air Flow Studio', body, js), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
 function socialShell(title, bodyHtml, extraScript = '') {
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHTML(title)} — Ocean Hub</title>
@@ -9780,7 +9959,7 @@ input,textarea{width:100%;background:#081828;border:1px solid var(--line);color:
 .me{align-self:flex-end;background:#0b5fad}.them{align-self:flex-start;background:#13283f}
 .composer{display:flex;gap:8px;margin-top:10px}
 </style></head><body><div class="wrap">
-<div class="nav"><a href="/home">Inicio</a><a href="/friends">Friends</a><a href="/feed">Feed</a><a href="/parties">Game Party</a><a href="/crews">Crews</a><a href="/events">Events</a><a href="/ocean-xp">Ocean XP</a><a href="/messages">Mensajes</a><a href="/notifications">Notificaciones</a><a href="/profile/edit">Editar perfil</a><a href="/profile">Mi perfil</a></div>
+<div class="nav"><a href="/home">Inicio</a><a href="/friends">Friends</a><a href="/feed">Feed</a><a href="/parties">Game Party</a><a href="/crews">Crews</a><a href="/events">Events</a><a href="/ocean-xp">Ocean XP</a><a href="/arena">Ocean Arena</a><a href="/creator-studio">Creator Studio</a><a href="/air-flow-studio">Air Flow Studio</a><a href="/verification/request">Solicitar verificación</a><a href="/messages">Mensajes</a><a href="/notifications">Notificaciones</a><a href="/profile/edit">Editar perfil</a><a href="/profile">Mi perfil</a></div>
 ${bodyHtml}
 </div><script>${extraScript}</script></body></html>`;
 }
@@ -10375,9 +10554,16 @@ export async function workerFetch(request, env) {
         if (path === '/ocean-xp') return await handleOceanXpPage(env, request);
         if (path === '/feed') return await handleFeedPage(env, request);
         if (path === '/admin/community-reports') return await handleCommunityReportsPage(env, request);
+        if (path === '/creator-studio') return await handleCreatorStudioPage(env, request);
+        if (path === '/air-flow-studio') return await handleAirFlowStudioPage(env, request);
+        if (path === '/arena') return await handleArenaPage(env, request);
+        const arenaActionMatch = path.match(/^\\/arena\\/([a-f0-9]{32})\\/(join|leave|cancel)$/);
+        if (arenaActionMatch) return await handleArenaAction(env, request, arenaActionMatch[1], arenaActionMatch[2]);
         const feedActionMatch = path.match(/^\/feed\/([a-f0-9]{32})\/(like|comment|delete|report)$/);
         if (feedActionMatch) return await handleFeedAction(env, request, feedActionMatch[1], feedActionMatch[2]);
         if (path === '/parties') return await handlePartiesPage(env, request);
+        const partyInviteMatch = path.match(/^\/parties\/([a-f0-9]{32})\/invite$/);
+        if (partyInviteMatch) return await handlePartyInvite(env, request, partyInviteMatch[1]);
         const partyActionMatch = path.match(/^\/parties\/([a-f0-9]{32})\/(join|leave|cancel)$/);
         if (partyActionMatch) return await handlePartyAction(env, request, partyActionMatch[1], partyActionMatch[2]);
         if (path === '/crews') return await handleCrewsPage(env, request);
