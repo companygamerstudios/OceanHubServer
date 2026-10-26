@@ -7004,6 +7004,7 @@ async function handleAdminRoute(env, url, headers, request) {
         
         const resellerLink = `<a href="/admin/resellers" style="background:rgba(255,200,0,0.2);">👥 Revendedores</a>`;
         const userManagerLink = `<a href="/admin/users" style="background:rgba(0,200,255,0.2);">👤 Usuarios</a>`;
+        const verificationPanelLink = `<a href="/admin/social" style="background:rgba(29,161,242,0.24);border:1px solid rgba(29,161,242,.55);">✔️ Panel de verificación</a>`;
         const backupLink = `<button onclick="doBackup()" style="background:rgba(255,100,0,0.3);">💾 Backup</button>`;
         const uploadLink = `<button onclick="openUploadModal()" style="background:rgba(0,200,100,0.3);">📤 Subir CSV</button>`;
 
@@ -7312,6 +7313,7 @@ async function handleAdminRoute(env, url, headers, request) {
                 <a href="/admin/logs" style="background:rgba(0,200,255,0.2);">📋 Logs</a>
                 ${resellerLink}
                 ${userManagerLink}
+                ${verificationPanelLink}
                 ${backupLink}
                 ${uploadLink}
                 <button onclick="location.reload()">🔄 Refrescar</button>
@@ -8802,20 +8804,199 @@ async function socialTouchInbox(env, ownerEmail, peerEmail, lastText) {
 }
 
 
+async function ohRecordVerificationAudit(env, entry) {
+    const record = {
+        id: generateRandomHex(16),
+        at: new Date().toISOString(),
+        actor: String(entry.actor || 'admin').slice(0, 160),
+        target_email: String(entry.target_email || '').toLowerCase().slice(0, 254),
+        target_username: String(entry.target_username || '').slice(0, 40),
+        verified: entry.verified === true,
+        source: String(entry.source || 'admin-panel').slice(0, 40),
+        reason: String(entry.reason || '').trim().slice(0, 300)
+    };
+    await withKVLock(env, 'oh-verified-audit', async () => {
+        const audit = await env.STATS.get('oh_verified_audit', 'json') || [];
+        audit.unshift(record);
+        await env.STATS.put('oh_verified_audit', JSON.stringify(audit.slice(0, 200)));
+    });
+    return record;
+}
+
+async function ohNotifyVerificationAdmins(env, requestRecord) {
+    try {
+        const users = await getAllUsers(env);
+        for (const admin of users.filter(u => u && u.role === 'admin').slice(0, 25)) {
+            await socialPushNotif(env, admin.email, {
+                type: 'verification_request',
+                title: 'Nueva solicitud de verificación',
+                body: '@' + String(requestRecord.username || 'usuario') + ' solicita la insignia azul.',
+                href: '/admin/verification-requests'
+            });
+        }
+    } catch (error) {
+        console.error('Verification admin notification failed:', error?.message || error);
+    }
+}
+
 async function handleAdminVerifyUser(env, request) {
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
     if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
     let body; try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const target = String(body?.username || body?.email || '').trim();
-    if (!target) return jsonResponse({ error: 'Indica username o email' }, 400);
+    if (!target || target.length > 254) return jsonResponse({ error: 'Indica un username o email válido' }, 400);
+    const verified = body?.verified === false || body?.verified === 'false' || body?.action === 'unverify' ? false : true;
+    const reason = String(body?.reason || '').trim().slice(0, 300);
     let user = target.includes('@') ? await getUserByEmail(env, target.toLowerCase()) : await socialGetUserByUsername(env, target);
     if (!user) return jsonResponse({ error: 'Usuario no encontrado' }, 404);
     user = await socialEnsureUserMeta(env, user);
-    const verified = body?.verified === false || body?.verified === 'false' || body?.action === 'unverify' ? false : true;
-    user.verified = verified;
-    await socialSaveUser(env, user);
-    return jsonResponse({ ok: true, username: user.username, email: user.email, verified: user.verified, profile: `/Profile/${user.username}` });
+    const changed = !!user.verified !== verified;
+    if (changed && reason.length < 3) return jsonResponse({ error: 'Indica un motivo de al menos 3 caracteres para registrar la decisión.' }, 400);
+    if (changed) {
+        user.verified = verified;
+        await socialSaveUser(env, user);
+        await ohRecordVerificationAudit(env, {
+            actor: auth.user.email,
+            target_email: user.email,
+            target_username: user.username,
+            verified: verified,
+            source: 'admin-panel',
+            reason: reason
+        });
+        try {
+            await socialPushNotif(env, user.email, {
+                type: 'verification',
+                title: verified ? '¡Perfil verificado!' : 'Verificación retirada',
+                body: verified ? 'Un administrador de Ocean Hub ha verificado tu perfil.' : 'Un administrador ha retirado la insignia de verificación de tu perfil.',
+                href: '/Profile/' + encodeURIComponent(user.username)
+            });
+        } catch (_) {}
+    }
+    return jsonResponse({ ok: true, changed: changed, username: user.username, verified: !!user.verified, profile: '/Profile/' + user.username });
+}
+
+async function handleVerificationRequestPage(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
+    const me = await socialEnsureUserMeta(env, auth.user);
+    const email = String(me.email || '').toLowerCase();
+    const userHash = (await hashKey(email)).slice(0, 32);
+    const userIndexKey = 'oh_verreq_user_' + userHash;
+
+    if (request.method === 'POST') {
+        if (!!me.verified) return communityErrorResponse(request, 'Ya estás verificado', 'Tu perfil ya tiene la insignia azul.', '/verification/request');
+        if (!(await checkActionRateLimit(env, 'verification-request', email, 2, 86400))) {
+            return communityErrorResponse(request, 'Límite alcanzado', 'Puedes enviar como máximo 2 solicitudes al día.', '/verification/request');
+        }
+        const form = await request.formData();
+        const reason = String(form.get('reason') || '').trim().slice(0, 500);
+        if (reason.length < 20) return communityErrorResponse(request, 'Solicitud incompleta', 'Explica tu identidad, actividad o contribución en al menos 20 caracteres.', '/verification/request');
+        const previousId = await env.STATS.get(userIndexKey);
+        if (previousId) {
+            const previous = await env.STATS.get('oh_verreq_' + previousId, 'json');
+            if (previous && previous.state === 'pending') return communityErrorResponse(request, 'Ya tienes una solicitud pendiente', 'Los administradores revisarán tu solicitud actual.', '/verification/request');
+        }
+        const id = generateRandomHex(16);
+        const record = { id: id, email: email, username: String(me.username || '').slice(0, 40), reason: reason, state: 'pending', created_at: new Date().toISOString(), handled_at: null, handled_by: null, decision_reason: '' };
+        await env.STATS.put('oh_verreq_' + id, JSON.stringify(record), { expirationTtl: 7776000 });
+        await env.STATS.put(userIndexKey, id);
+        await withKVLock(env, 'oh-verreq-index', async () => {
+            const ids = await env.STATS.get('oh_verreq_index', 'json') || [];
+            ids.unshift(id);
+            await env.STATS.put('oh_verreq_index', JSON.stringify([...new Set(ids)].slice(0, 1000)));
+        });
+        await ohNotifyVerificationAdmins(env, record);
+        return Response.redirect(new URL('/verification/request?sent=1', request.url).href, 303);
+    }
+    if (request.method !== 'GET') return new Response('Método no permitido', { status: 405 });
+    const requestId = await env.STATS.get(userIndexKey);
+    const current = requestId ? await env.STATS.get('oh_verreq_' + requestId, 'json') : null;
+    const statusText = current ? ({ pending: '⏳ En revisión', approved: '✅ Aprobada', rejected: '↩️ No aprobada' }[current.state] || 'Sin solicitud') : 'Sin solicitud';
+    const statusHtml = current ? '<div class="card"><b>Estado: ' + escapeHTML(statusText) + '</b><p class="muted">Enviada: ' + escapeHTML(String(current.created_at || '').slice(0, 16).replace('T', ' ')) + ' UTC</p>' +
+        (current.state === 'rejected' && current.decision_reason ? '<p>Motivo de la decisión: ' + escapeHTML(current.decision_reason) + '</p>' : '') +
+        (current.state === 'pending' ? '<p class="muted">Tu solicitud está pendiente. No hace falta enviarla de nuevo.</p>' : '') + '</div>' : '';
+    const formHtml = !me.verified && (!current || current.state !== 'pending')
+        ? '<div class="card"><h2>Solicitar insignia azul</h2><p>La insignia la concede un administrador tras revisar el caso. Enviar una solicitud no garantiza la aprobación.</p><form method="post" action="/verification/request"><label>¿Por qué debería verificarse tu perfil?</label><textarea name="reason" maxlength="500" minlength="20" rows="5" required placeholder="Describe tu presencia en Ocean Hub, tus proyectos o cómo pueden reconocer tu cuenta auténtica."></textarea><button class="btn" style="margin-top:10px">Enviar solicitud</button></form></div>'
+        : '';
+    const body = '<h1>✔ Solicitar verificación</h1><p class="muted">Cuenta: @' + escapeHTML(me.username || '') + '</p>' +
+        (me.verified ? '<div class="card">✅ Tu perfil ya está verificado. <a href="/Profile/' + encodeURIComponent(me.username) + '">Ver perfil</a></div>' : statusHtml + formHtml);
+    return new Response(socialShell('Solicitar verificación', body), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
+async function handleAdminVerificationRequestsPage(env, request) {
+    const auth = await requireAdmin(env, request);
+    if (!auth) return new Response('No autorizado', { status: 403 });
+    if (request.method === 'POST') {
+        const form = await request.formData();
+        const id = String(form.get('id') || '');
+        const decision = String(form.get('decision') || '');
+        const decisionReason = String(form.get('decision_reason') || '').trim().slice(0, 300);
+        if (!/^[a-f0-9]{32}$/.test(id) || !['approve', 'reject'].includes(decision)) return communityErrorResponse(request, 'Solicitud no válida', 'Comprueba la solicitud y vuelve a intentarlo.', '/admin/verification-requests');
+        let outcome;
+        try {
+            outcome = await withKVLock(env, 'oh-verreq:' + id, async () => {
+                const key = 'oh_verreq_' + id;
+                const record = await env.STATS.get(key, 'json');
+                if (!record || record.state !== 'pending') return { error: 'La solicitud ya se resolvió o no existe.' };
+                const target = await getUserByEmail(env, record.email);
+                if (!target) return { error: 'No se encontró el usuario asociado a la solicitud.' };
+                const approved = decision === 'approve';
+                if (approved) {
+                    target.verified = true;
+                    await socialSaveUser(env, target);
+                }
+                record.state = approved ? 'approved' : 'rejected';
+                record.handled_at = new Date().toISOString();
+                record.handled_by = String(auth.user.email || 'admin').slice(0, 160);
+                record.decision_reason = decisionReason || (approved ? 'Aprobada por un administrador.' : 'No cumple los criterios actuales.');
+                await env.STATS.put(key, JSON.stringify(record), { expirationTtl: 7776000 });
+                await ohRecordVerificationAudit(env, {
+                    actor: auth.user.email,
+                    target_email: record.email,
+                    target_username: record.username,
+                    verified: approved,
+                    source: 'user-request',
+                    reason: (approved ? 'Solicitud aprobada. ' : 'Solicitud rechazada. ') + record.decision_reason
+                });
+                try {
+                    await socialPushNotif(env, record.email, {
+                        type: 'verification',
+                        title: approved ? '¡Perfil verificado!' : 'Solicitud de verificación revisada',
+                        body: approved ? 'Tu perfil ya muestra la insignia azul.' : 'Tu solicitud fue revisada. Motivo: ' + record.decision_reason,
+                        href: approved ? '/Profile/' + encodeURIComponent(record.username) : '/verification/request'
+                    });
+                } catch (_) {}
+                return { ok: true };
+            });
+        } catch (error) {
+            console.error('Verification request review failed:', error?.message || error);
+            return communityErrorResponse(request, 'No se pudo guardar la decisión', 'Inténtalo otra vez.', '/admin/verification-requests');
+        }
+        if (outcome && outcome.error) return communityErrorResponse(request, 'Decisión no aplicada', outcome.error, '/admin/verification-requests');
+        return communityRedirect(request, '/admin/verification-requests');
+    }
+    if (request.method !== 'GET') return new Response('Método no permitido', { status: 405 });
+    const ids = await env.STATS.get('oh_verreq_index', 'json') || [];
+    const records = [];
+    for (const id of ids.slice(0, 100)) {
+        const record = await env.STATS.get('oh_verreq_' + id, 'json');
+        if (record) records.push(record);
+    }
+    const cards = records.map(r => '<div class="card"><div class="row"><b>@' + escapeHTML(r.username || 'usuario') + '</b><span class="muted">' + escapeHTML(String(r.state || '').toUpperCase()) + '</span></div><p class="muted">Creada: ' + escapeHTML(String(r.created_at || '').slice(0, 16).replace('T', ' ')) + ' UTC</p><p style="white-space:pre-wrap">' + escapeHTML(r.reason || '') + '</p>' +
+        (r.state === 'pending' ? '<form method="post" action="/admin/verification-requests"><input type="hidden" name="id" value="' + escapeHTML(r.id) + '"><label>Nota de decisión (opcional)</label><input name="decision_reason" maxlength="300" placeholder="Motivo para el usuario"><div class="row" style="margin-top:8px"><button class="btn" name="decision" value="approve">Aprobar ✔</button><button class="btn danger" name="decision" value="reject">Rechazar</button></div></form>' :
+        '<p class="muted">Revisada: ' + escapeHTML(String(r.handled_at || '').slice(0, 16).replace('T', ' ')) + ' UTC · ' + escapeHTML(r.handled_by || 'admin') + '</p>') + '</div>').join('');
+    const body = '<h1>Solicitudes de verificación</h1><p class="muted">Las decisiones quedan registradas en el historial de auditoría.</p>' + (cards || '<div class="card">Todavía no hay solicitudes.</div>') + '<p><a href="/admin/social">Volver al Panel de verificación</a></p>';
+    return new Response(socialShell('Solicitudes de verificación', body), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
+async function handleAdminVerificationAuditPage(env, request) {
+    const auth = await requireAdmin(env, request);
+    if (!auth) return new Response('No autorizado', { status: 403 });
+    if (request.method !== 'GET') return new Response('Método no permitido', { status: 405 });
+    const audit = await env.STATS.get('oh_verified_audit', 'json') || [];
+    const cards = audit.slice(0, 100).map(r => '<div class="card"><div class="row"><b>' + (r.verified ? '✔ Verificación concedida' : '↩ Verificación retirada / solicitud rechazada') + '</b><span class="muted">' + escapeHTML(String(r.at || '').slice(0, 16).replace('T', ' ')) + ' UTC</span></div><p>@' + escapeHTML(r.target_username || 'usuario') + ' · ' + escapeHTML(r.target_email || '') + '</p><p class="muted">Operador: ' + escapeHTML(r.actor || 'admin') + ' · Origen: ' + escapeHTML(r.source || 'admin-panel') + '</p><p>Motivo: ' + escapeHTML(r.reason || '—') + '</p></div>').join('');
+    return new Response(socialShell('Auditoría de verificación', '<h1>📋 Historial de verificación</h1>' + (cards || '<div class="card">Sin acciones registradas todavía.</div>') + '<p><a href="/admin/social">Volver al Panel de verificación</a></p>'), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
 async function handlePublicProfile(env, request, usernameParam) {
@@ -9684,32 +9865,22 @@ async function handleMessagesPage(env, request, peerUsername) {
 async function handleAdminSocialPage(env, request) {
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
-    const html = socialShell('Admin · Verificación', `
-      <h1>✔ Verificar usuarios</h1>
-      <div class="card">
-        <p class="muted">Otorga o quita la insignia de verificación permanente por username o email.</p>
-        <form id="f" class="row" style="flex-direction:column;align-items:stretch">
-          <input id="target" placeholder="Username o email" required>
-          <div style="display:flex;gap:8px">
-            <button class="btn" type="submit">Verificar ✔</button>
-            <button class="btn danger" type="button" id="unverify">Quitar verificación</button>
-          </div>
-        </form>
-        <pre id="out" class="muted" style="margin-top:12px;white-space:pre-wrap"></pre>
-      </div>
-    `, `
-    async function go(verified){
-      var target=document.getElementById('target').value.trim();
-      var r=await fetch('/admin/verify-user',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:target,email:target,verified:verified})});
-      var d=await r.json().catch(function(){return{}});
-      document.getElementById('out').textContent=JSON.stringify(d,null,2);
+    if (request.method !== 'GET') return new Response('Método no permitido', { status: 405 });
+    const audit = await env.STATS.get('oh_verified_audit', 'json') || [];
+    const pendingIds = await env.STATS.get('oh_verreq_index', 'json') || [];
+    let pendingCount = 0;
+    for (const id of pendingIds.slice(0, 100)) {
+        const r = await env.STATS.get('oh_verreq_' + id, 'json');
+        if (r && r.state === 'pending') pendingCount++;
     }
-    document.getElementById('f').onsubmit=function(e){e.preventDefault();go(true)};
-    document.getElementById('unverify').onclick=function(){go(false)};
-    `);
-    return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+    const recent = audit.slice(0, 10).map(r => '<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)"><span>' + (r.verified ? '✔' : '↩') + ' @' + escapeHTML(r.target_username || 'usuario') + '<div class="muted">' + escapeHTML(r.reason || '—') + '</div></span><span class="muted">' + escapeHTML(String(r.at || '').slice(0, 10)) + '</span></div>').join('');
+    const body = '<h1>✔ Panel de verificación</h1>' +
+        '<div class="card"><div class="row"><div><h2>Solicitudes pendientes</h2><p class="muted">Revisa peticiones y registra cada decisión.</p></div><b style="font-size:28px">' + pendingCount + '</b></div><div class="row"><a class="btn" href="/admin/verification-requests">Abrir solicitudes</a><a class="btn ghost" href="/admin/verification-audit">Ver historial completo</a></div></div>' +
+        '<div class="card"><h2>Verificar o retirar insignia</h2><p class="muted">Busca por username o email. Escribe un motivo para que la decisión quede en el historial.</p><form id="f" style="display:flex;flex-direction:column;gap:10px"><input id="target" maxlength="254" placeholder="Username o email" required><textarea id="reason" maxlength="300" minlength="3" rows="3" placeholder="Motivo de la decisión (obligatorio)" required></textarea><div class="row"><button class="btn" type="submit">Verificar ✔</button><button class="btn danger" type="button" id="unverify">Quitar verificación</button></div></form><pre id="out" class="muted" style="margin-top:12px;white-space:pre-wrap"></pre></div>' +
+        '<div class="card"><h2>Últimas decisiones</h2>' + (recent || '<p class="muted">Todavía no hay decisiones.</p>') + '<a href="/admin/verification-audit">Consultar todas las decisiones</a></div>';
+    const js = "async function go(verified){var target=document.getElementById('target').value.trim();var reason=document.getElementById('reason').value.trim();if(!target||reason.length<3){document.getElementById('out').textContent='Escribe el usuario y un motivo de al menos 3 caracteres.';return;}var r=await fetch('/admin/verify-user',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:target,email:target,verified:verified,reason:reason})});var d=await r.json().catch(function(){return{}});document.getElementById('out').textContent=r.ok?(d.changed?'Cambio guardado para @'+d.username:'Ese usuario ya tenía ese estado.'):(d.error||'No se pudo completar la acción');if(r.ok)setTimeout(function(){location.reload()},700);}document.getElementById('f').onsubmit=function(e){e.preventDefault();go(true)};document.getElementById('unverify').onclick=function(){go(false)};";
+    return new Response(socialShell('Admin · Verificación', body, js), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
-
 
 
 // ==================================================
@@ -10204,6 +10375,9 @@ export async function workerFetch(request, env) {
         }
         if (path === '/admin/verify-user') return await handleAdminVerifyUser(env, request);
         if (path === '/admin/social' || path === '/admin/verificacion') return await handleAdminSocialPage(env, request);
+        if (path === '/verification/request') return await handleVerificationRequestPage(env, request);
+        if (path === '/admin/verification-requests') return await handleAdminVerificationRequestsPage(env, request);
+        if (path === '/admin/verification-audit') return await handleAdminVerificationAuditPage(env, request);
 
         // --- Perfil editable + notificaciones ---
         if (path === '/profile/edit') {
