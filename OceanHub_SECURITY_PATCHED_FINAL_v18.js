@@ -9235,7 +9235,7 @@ async function handleFeedPage(env, request) {
         if (await socialIsBlockedEither(env, me.email, p.author_email)) continue;
         const likes = Array.isArray(p.likes) ? p.likes : [], comments = Array.isArray(p.comments) ? p.comments : [], commentRows = [];
         for (const c of comments.slice(-10)) {
-            if (c.author_email && await socialIsBlockedEither(env, me.email, c.author_email)) continue;
+            if (c.author_email && blocks.has(String(c.author_email).toLowerCase())) continue;
             commentRows.push('<div class="bubble them"><b>@' + escapeHTML(c.username || 'user') + '</b><div style="white-space:pre-wrap;overflow-wrap:anywhere">' + escapeHTML(c.text || '') + '</div></div>');
         }
         const ownerAction = p.author_email === me.email.toLowerCase()
@@ -9553,7 +9553,7 @@ async function handleFriendsPage(env, request) {
             '</div></div></div><span class="muted">' + (isOnline ? '🟢 ' : '⚪ ') + escapeHTML(statusText) + '</span></div>');
     }
     const presenceCards = presenceRows.join('');
-    const html = socialShell('Friends', \`
+    const html = socialShell('Friends', `
       <h1>👥 Amigos</h1>
       <div class="card"><form id="addForm" class="row"><input id="userInput" placeholder="Nombre de usuario (ej: YoelZorrilla)" required style="flex:1;min-width:180px"><button class="btn" type="submit">Enviar solicitud</button></form>
       <p class="muted" style="margin:8px 0 0">Tu perfil público: <a href="/Profile/${encodeURIComponent(me.username)}">/Profile/${escapeHTML(me.username)}</a></p></div>
