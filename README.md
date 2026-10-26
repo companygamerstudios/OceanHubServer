@@ -15,6 +15,20 @@ npm test
 
 Local development uses `wrangler.local.jsonc` and PayPal sandbox mode. It is intentionally a different Worker name and URL from production. Configure local-only credentials in `.dev.vars`; never commit that file.
 
+## Community, creator and verification tools
+
+The authenticated community shell and main sidebar include these features:
+
+- **Verification:** users submit requests at `/verification/request`; administrators open the **Panel de verificación** from `/admin` or directly at `/admin/social`. Approvals and removals record the operator, timestamp, target and decision reason. Pending requests and the audit history live at `/admin/verification-requests` and `/admin/verification-audit`.
+- **Ocean Identity:** profile tagline, biography, favorite game and optional creator link at `/profile/edit`.
+- **Game Party:** public or private parties; private parties can only be joined by the host or invited accounts.
+- **Ocean Seasons:** lifetime Ocean XP is retained; new XP awards also count toward the current UTC quarter.
+- **Ocean Creator Studio:** create and remove your own public project cards at `/creator-studio`.
+- **Ocean Arena:** create tournaments, set a start time and participant cap, and join/leave or cancel as the organizer at `/arena`.
+- **Air Flow Studio:** save private prompt drafts at `/air-flow-studio`, copy a draft and open the existing `/air-flow` assistant. It is an add-on; it does not replace the Air Flow engine or remove modes/providers.
+
+All community pages require an authenticated session, and administrator verification pages require the admin role. These additions use the existing Worker storage binding; they do not require a new Worker or an external R2 bucket.
+
 ## Production deployment
 
 Production publishing is handled automatically by the GitHub Actions workflow **Implementar comando**.
