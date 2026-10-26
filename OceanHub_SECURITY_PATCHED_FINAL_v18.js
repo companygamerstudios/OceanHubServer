@@ -10557,7 +10557,7 @@ export async function workerFetch(request, env) {
         if (path === '/creator-studio') return await handleCreatorStudioPage(env, request);
         if (path === '/air-flow-studio') return await handleAirFlowStudioPage(env, request);
         if (path === '/arena') return await handleArenaPage(env, request);
-        const arenaActionMatch = path.match(/^\\/arena\\/([a-f0-9]{32})\\/(join|leave|cancel)$/);
+        const arenaActionMatch = path.match(/^\/arena\/([a-f0-9]{32})\/(join|leave|cancel)$/);
         if (arenaActionMatch) return await handleArenaAction(env, request, arenaActionMatch[1], arenaActionMatch[2]);
         const feedActionMatch = path.match(/^\/feed\/([a-f0-9]{32})\/(like|comment|delete|report)$/);
         if (feedActionMatch) return await handleFeedAction(env, request, feedActionMatch[1], feedActionMatch[2]);
