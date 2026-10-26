@@ -9136,16 +9136,48 @@ function communityErrorResponse(request, title, message, backPath) {
     return communityPageResponse(title, body, 400);
 }
 function communityRedirect(request, path) { return Response.redirect(new URL(path, request.url).href, 303); }
+const COMMUNITY_INDEX_LABELS = {
+    'oh_post_': 'posts',
+    'oh_party_': 'parties',
+    'oh_crew_': 'crews',
+    'oh_event_': 'events',
+    'oh_report_': 'reports'
+};
+function communityIndexLabel(prefix) {
+    return COMMUNITY_INDEX_LABELS[prefix] || null;
+}
+async function communityIndexAdd(env, prefix, storageKey) {
+    const label = communityIndexLabel(prefix);
+    if (!label || !String(storageKey || '').startsWith(prefix)) return;
+    await withKVLock(env, 'community-index:' + label, async () => {
+        const indexKey = 'oh_community_index_' + label;
+        const previous = await env.STATS.get(indexKey, 'json');
+        const entries = Array.isArray(previous) ? previous : [];
+        const next = [storageKey, ...entries.filter(key => key !== storageKey)].slice(0, 1000);
+        await env.STATS.put(indexKey, JSON.stringify(next));
+    });
+}
 async function communityListRecords(env, prefix, maxRecords = 80) {
-    const names = []; let cursor;
-    for (let pageNo = 0; pageNo < 10 && names.length < maxRecords; pageNo++) {
-        const args = { prefix, limit: 100 }; if (cursor) args.cursor = cursor;
-        const page = await env.STATS.list(args);
-        for (const item of (page.keys || [])) { names.push(item.name); if (names.length >= maxRecords) break; }
-        if (page.list_complete || !page.cursor) break; cursor = page.cursor;
+    const label = communityIndexLabel(prefix);
+    const indexKey = label ? 'oh_community_index_' + label : '';
+    const index = indexKey ? await env.STATS.get(indexKey, 'json') : null;
+    let names = Array.isArray(index) ? index.slice(0, Math.min(1000, Math.max(maxRecords, maxRecords * 3))) : [];
+    // Backfill/fallback keeps older records visible if this feature is ever upgraded from an unindexed build.
+    if (!names.length) {
+        let cursor;
+        for (let pageNo = 0; pageNo < 10 && names.length < maxRecords; pageNo++) {
+            const args = { prefix, limit: 100 }; if (cursor) args.cursor = cursor;
+            const page = await env.STATS.list(args);
+            for (const item of (page.keys || [])) { names.push(item.name); if (names.length >= maxRecords) break; }
+            if (page.list_complete || !page.cursor) break;
+            cursor = page.cursor;
+        }
     }
     const rows = [];
-    for (const name of names) { const value = await env.STATS.get(name, 'json'); if (value) rows.push(value); }
+    for (const name of names) {
+        const value = await env.STATS.get(name, 'json');
+        if (value) rows.push(value);
+    }
     return rows;
 }
 async function communityPresenceKey(email) { return 'presence_' + (await hashKey(String(email || '').toLowerCase())).slice(0, 24); }
@@ -9172,6 +9204,19 @@ async function communityAwardXp(env, email, points, reason, sourceId) {
 async function communityXpState(env, email) {
     const hash = (await hashKey(String(email || '').toLowerCase())).slice(0, 32);
     return await env.STATS.get('oh_xp_' + hash, 'json') || { xp: 0, updated_at: null };
+}
+async function handleCommunityPresenceHeartbeat(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
+    const me = await socialEnsureUserMeta(env, auth.user);
+    if (!(await checkActionRateLimit(env, 'community-presence-heartbeat', me.email, 120, 3600))) {
+        return jsonResponse({ error: 'Demasiadas actualizaciones de presencia' }, 429);
+    }
+    const status = await communityGetStatus(env, me.email);
+    if (status.status === 'invisible') await env.STATS.delete(await communityPresenceKey(env, me.email));
+    else await communityTouchPresence(env, me.email);
+    return jsonResponse({ ok: true });
 }
 async function handleCommunityStatusForm(env, request) {
     const auth = await requireAuth(env, request);
@@ -9223,6 +9268,7 @@ async function handleFeedPage(env, request) {
         const id = generateRandomHex(16);
         const post = { id, author_email: me.email.toLowerCase(), author_username: me.username, author_name: String(me.name || me.username).slice(0, 80), avatar_emoji: me.avatar_emoji || '👤', verified: !!me.verified, text, created_at: new Date().toISOString(), likes: [], comments: [], deleted: false };
         await env.STATS.put('oh_post_' + id, JSON.stringify(post), { expirationTtl: 7776000 });
+        try { await communityIndexAdd(env, 'oh_post_', 'oh_post_' + id); } catch (_) { await env.STATS.delete('oh_post_' + id); return communityErrorResponse(request, 'No se pudo publicar', 'No pudimos guardar el índice del Feed. Inténtalo de nuevo.', '/feed'); }
         try { await communityAwardXp(env, me.email, 10, 'feed-post', id); } catch (_) {}
         return communityRedirect(request, '/feed');
     }
@@ -9283,6 +9329,8 @@ async function handleFeedAction(env, request, id, action) {
                 if (post.author_email === me.email.toLowerCase()) return { error: 'No puedes denunciar tu propia publicación.' };
                 const form = await request.formData(), reason = String(form.get('reason') || 'Otro').slice(0, 160), reportId = generateRandomHex(16);
                 await env.STATS.put('oh_report_' + reportId, JSON.stringify({ id: reportId, post_id: id, post_text: String(post.text || '').slice(0, 500), author_username: String(post.author_username || '').slice(0, 40), reporter_email: me.email.toLowerCase(), reason, created_at: new Date().toISOString(), state: 'open' }));
+                try { await communityIndexAdd(env, 'oh_report_', 'oh_report_' + reportId); }
+                catch (_) { await env.STATS.delete('oh_report_' + reportId); return { error: 'No se pudo registrar la denuncia. Inténtalo de nuevo.' }; }
                 return { ok: true };
             }
             return { error: 'Acción no reconocida.' };
@@ -9322,6 +9370,7 @@ async function handlePartiesPage(env, request) {
         const id = generateRandomHex(16), now = Date.now();
         const party = { id, title, game, description, host_email: me.email.toLowerCase(), host_username: me.username, members: [me.email.toLowerCase()], max_players: maxPlayers, cancelled: false, created_at: new Date(now).toISOString(), expires_at: new Date(now + 12 * 3600000).toISOString() };
         await env.STATS.put('oh_party_' + id, JSON.stringify(party), { expirationTtl: 259200 });
+        try { await communityIndexAdd(env, 'oh_party_', 'oh_party_' + id); } catch (_) { await env.STATS.delete('oh_party_' + id); return communityErrorResponse(request, 'No se pudo crear la party', 'Inténtalo de nuevo en un momento.', '/parties'); }
         try { await communityAwardXp(env, me.email, 15, 'party-create', id); } catch (_) {}
         return communityRedirect(request, '/parties');
     }
@@ -9386,6 +9435,7 @@ async function handleCrewsPage(env, request) {
         if (name.length < 3 || name.length > 40 || description.length > 240) return communityErrorResponse(request, 'Datos no válidos', 'El nombre debe tener 3–40 caracteres y la descripción máximo 240.', '/crews');
         const id = generateRandomHex(16), crew = { id, name, description, owner_email: me.email.toLowerCase(), owner_username: me.username, members: [me.email.toLowerCase()], created_at: new Date().toISOString(), disbanded: false };
         await env.STATS.put('oh_crew_' + id, JSON.stringify(crew));
+        try { await communityIndexAdd(env, 'oh_crew_', 'oh_crew_' + id); } catch (_) { await env.STATS.delete('oh_crew_' + id); return communityErrorResponse(request, 'No se pudo crear la crew', 'Inténtalo de nuevo en un momento.', '/crews'); }
         try { await communityAwardXp(env, me.email, 50, 'crew-create', id); } catch (_) {}
         return communityRedirect(request, '/crews');
     }
@@ -9452,6 +9502,7 @@ async function handleEventsPage(env, request) {
         }
         const id = generateRandomHex(16), event = { id, title, game, description, owner_email: me.email.toLowerCase(), owner_username: me.username, start_at: new Date(startMs).toISOString(), attendees: [me.email.toLowerCase()], cancelled: false, created_at: new Date().toISOString() };
         await env.STATS.put('oh_event_' + id, JSON.stringify(event));
+        try { await communityIndexAdd(env, 'oh_event_', 'oh_event_' + id); } catch (_) { await env.STATS.delete('oh_event_' + id); return communityErrorResponse(request, 'No se pudo crear el evento', 'Inténtalo de nuevo en un momento.', '/events'); }
         try { await communityAwardXp(env, me.email, 25, 'event-create', id); } catch (_) {}
         return communityRedirect(request, '/events');
     }
@@ -9535,8 +9586,9 @@ async function handleFriendsPage(env, request) {
     const auth = await requireAuth(env, request);
     if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
     const me = await socialEnsureUserMeta(env, auth.user);
-    await communityTouchPresence(env, me.email);
     const currentStatus = await communityGetStatus(env, me.email);
+    if (currentStatus.status === 'invisible') await env.STATS.delete(await communityPresenceKey(env, me.email));
+    else await communityTouchPresence(env, me.email);
     const friendData = await socialGetFriends(env, me.email);
     const presenceRows = [];
     for (const friendEmail of (friendData.accepted || []).slice(0, 40)) {
@@ -9584,6 +9636,7 @@ async function handleFriendsPage(env, request) {
       await load();
     }catch(err){alert(err.message)}});
     load().catch(function(e){document.getElementById('accepted').innerHTML='<p class="muted">Error: '+esc(e.message)+'</p>'});
+    setInterval(function(){fetch('/friends/presence',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'}).catch(function(){});},45000);
     `);
     return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
@@ -10108,6 +10161,7 @@ export async function workerFetch(request, env) {
         if (path === '/cron-jobs') return await handleCronJobs(env, request);
 
         // --- Ocean Hub Community Suite ---
+        if (path === '/friends/presence') return await handleCommunityPresenceHeartbeat(env, request);
         if (path === '/friends/status') return await handleCommunityStatusForm(env, request);
         if (path === '/ocean-xp') return await handleOceanXpPage(env, request);
         if (path === '/feed') return await handleFeedPage(env, request);
