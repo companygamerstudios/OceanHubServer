@@ -88,3 +88,8 @@ test('worker fails closed when the required Durable Object binding is absent', a
   assert.equal(response.status, 503);
   assert.match(await response.text(), /KV_LOCKER_NOT_CONFIGURED/);
 });
+
+test('home sidebar exposes the existing Friends page', () => {
+  assert.ok(source.includes('<a class=\\\"nv\\\" href=\\\"/friends\\\">👥 Friends</a>'));
+  assert.ok(source.includes("if (path === '/friends') return await handleFriendsPage(env, request);"));
+});
