@@ -204,3 +204,11 @@ test('Air Flow Studio is an add-on and does not remove the existing Air Flow cha
     assert.ok(source.includes(mode + ':'), 'Air Flow mode missing: ' + mode);
   }
 });
+
+
+test('Private Game Party invitations are rate-limited, bounded and limited to the host', () => {
+  assert.ok(source.includes("checkActionRateLimit(env, 'community-party-invite', me.email, 20, 3600)"));
+  assert.ok(source.includes('party.invited_emails.length >= 50'));
+  assert.ok(source.includes('Solo el anfitrión puede invitar a una party activa.'));
+  assert.ok(source.includes('Esta party es privada: necesitas una invitación del anfitrión.'));
+});
