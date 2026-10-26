@@ -93,3 +93,52 @@ test('home sidebar exposes the existing Friends page', () => {
   assert.ok(source.includes('<a class=\\\"nv\\\" href=\\\"/friends\\\">👥 Friends</a>'));
   assert.ok(source.includes("if (path === '/friends') return await handleFriendsPage(env, request);"));
 });
+
+test('Ocean Hub community pages and actions are wired into the Worker', () => {
+  for (const route of ["'/friends/status'", "'/ocean-xp'", "'/feed'", "'/parties'", "'/crews'", "'/events'"]) {
+    assert.ok(source.includes("path === " + route), 'Missing route ' + route);
+  }
+  assert.ok(source.includes("path === '/admin/community-reports'"));
+  assert.ok(source.includes('async function handleCommunityStatusForm'));
+  assert.ok(source.includes('async function handleFeedAction'));
+  assert.ok(source.includes('async function handlePartyAction'));
+  assert.ok(source.includes('async function handleCrewAction'));
+  assert.ok(source.includes('async function handleEventAction'));
+});
+
+test('Community features enforce length limits, rate limits and authenticated ownership actions', () => {
+  for (const marker of ['community-feed-create', 'community-feed-comment', 'community-party-create', 'community-crew-create', 'community-event-create']) {
+    assert.ok(source.includes(marker), 'Missing rate limit ' + marker);
+  }
+  assert.ok(source.includes("if (post.author_email !== me.email.toLowerCase())"));
+  assert.ok(source.includes('El anfitrión debe cerrar la party'));
+  assert.ok(source.includes('Solo el fundador puede disolver esta crew'));
+  assert.ok(source.includes('Solo el organizador puede cancelar el evento'));
+  assert.ok(source.includes('Mi presencia'));
+});
+
+test('Air Flow keeps its existing capabilities and exposes Gaming Copilot as an additional mode', () => {
+  for (const mode of ['QUICK', 'THINK', 'RESEARCH', 'CODE', 'STUDY', 'GAMING', 'CREATE', 'TRAVEL', 'PLANNER', 'AGENT', 'SHOPPING', 'SECURITY']) {
+    assert.ok(source.includes(mode + ':'), 'Air Flow mode missing: ' + mode);
+  }
+  assert.ok(source.includes('Gaming Copilot'));
+  assert.ok(source.includes("async function handleAirFlowChatV11"));
+  assert.ok(source.includes("AF_MODE_RULES"));
+});
+
+test('Community content indexes retain newly created records for feed, parties, crews, events and reports', () => {
+  for (const label of ['posts', 'parties', 'crews', 'events', 'reports']) {
+    assert.ok(source.includes("'oh_community_index_" + label + "'") || source.includes("'oh_community_index_' + label"));
+  }
+  for (const prefix of ['oh_post_', 'oh_party_', 'oh_crew_', 'oh_event_', 'oh_report_']) {
+    assert.ok(source.includes("communityIndexAdd(env, '" + prefix + "'"), 'Missing index write for ' + prefix);
+  }
+  assert.ok(source.includes('slice(0, 1000)'), 'Indexes must remain bounded');
+});
+
+test('Friends presence uses a rate-limited heartbeat and respects invisible mode', () => {
+  assert.ok(source.includes("path === '/friends/presence'"));
+  assert.ok(source.includes('community-presence-heartbeat'));
+  assert.ok(source.includes("setInterval(function(){fetch('/friends/presence'"));
+  assert.ok(source.includes("status.status === 'invisible'"));
+});
