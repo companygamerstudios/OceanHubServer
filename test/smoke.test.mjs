@@ -142,3 +142,65 @@ test('Friends presence uses a rate-limited heartbeat and respects invisible mode
   assert.ok(source.includes("setInterval(function(){fetch('/friends/presence'"));
   assert.ok(source.includes("status.status === 'invisible'"));
 });
+
+
+test('Admin verification center is reachable from the main admin panel and stays admin-gated', () => {
+  assert.match(source, /const verificationPanelLink = .*href="\/admin\/social"/);
+  assert.match(source, /\$\{verificationPanelLink\}/);
+  assert.match(source, /async function handleAdminSocialPage\(env, request\)[\s\S]{0,180}requireAdmin\(env, request\)/);
+  assert.ok(source.includes("if (path === '/admin/social' || path === '/admin/verificacion')"));
+});
+
+test('Ocean Verified records reasons and actors, supports user requests, and reviews them only as admin', () => {
+  assert.ok(source.includes('async function ohRecordVerificationAudit'));
+  assert.ok(source.includes("'oh_verified_audit'"));
+  assert.ok(source.includes("if (path === '/verification/request')"));
+  assert.ok(source.includes("if (path === '/admin/verification-requests')"));
+  assert.ok(source.includes("if (path === '/admin/verification-audit')"));
+  assert.ok(source.includes('async function handleVerificationRequestPage'));
+  assert.ok(source.includes('async function handleAdminVerificationRequestsPage'));
+  assert.ok(source.includes("source: 'user-request'"));
+  assert.ok(source.includes('decision_reason'));
+});
+
+test('Ocean Identity exposes bounded profile tagline, favorite game and safe creator URL fields', () => {
+  assert.ok(source.includes('favorite_game'));
+  assert.ok(source.includes('creator_link'));
+  assert.ok(source.includes("if (body.tagline !== undefined)"));
+  assert.ok(source.includes('El enlace del creador debe empezar por https:// o http://'));
+});
+
+test('Ocean Seasons awards idempotent seasonal XP without removing lifetime XP', () => {
+  assert.ok(source.includes('function communityCurrentSeason'));
+  assert.ok(source.includes('oh_season_'));
+  assert.ok(source.includes("const stateKey = 'oh_xp_'"));
+  assert.ok(source.includes('Nivel de temporada'));
+});
+
+test('Game Party supports private rooms and invitation-only joining', () => {
+  assert.ok(source.includes('invited_emails'));
+  assert.ok(source.includes('is_private: isPrivate'));
+  assert.ok(source.includes('Esta party es privada: necesitas una invitación del anfitrión.'));
+  assert.ok(source.includes('async function handlePartyInvite'));
+  assert.ok(source.includes("action=\"/parties/' + p.id + '/invite\""));
+});
+
+test('Creator Studio, Ocean Arena and Air Flow Studio are routed and retain owner/access checks', () => {
+  assert.ok(source.includes("if (path === '/creator-studio')"));
+  assert.ok(source.includes('async function handleCreatorStudioPage'));
+  assert.ok(source.includes("if (path === '/arena')"));
+  assert.ok(source.includes('async function handleArenaAction'));
+  assert.ok(source.includes('Solo el organizador puede cancelar el torneo.'));
+  assert.ok(source.includes("if (path === '/air-flow-studio')"));
+  assert.ok(source.includes('async function handleAirFlowStudioPage'));
+  assert.ok(source.includes("href=\"/air-flow\""));
+});
+
+test('Air Flow Studio is an add-on and does not remove the existing Air Flow chat engine or modes', () => {
+  assert.ok(source.includes('async function handleAirFlowChatV11'));
+  assert.ok(source.includes('AF_MODE_RULES'));
+  assert.ok(source.includes("if (path === '/air-flow-studio')"));
+  for (const mode of ['QUICK', 'THINK', 'RESEARCH', 'CODE', 'STUDY', 'GAMING', 'CREATE', 'TRAVEL', 'PLANNER', 'AGENT', 'SHOPPING', 'SECURITY']) {
+    assert.ok(source.includes(mode + ':'), 'Air Flow mode missing: ' + mode);
+  }
+});
