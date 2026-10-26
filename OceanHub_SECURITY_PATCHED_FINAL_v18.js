@@ -9060,7 +9060,7 @@ async function handleAdminFestivityPage(env, request) {
     const label = String(config.label || (selectedTheme === 'none' ? 'Sin festividad' : preset.label)).slice(0, 60);
     const active = selectedTheme !== 'none' && config.active !== false;
     const options = Object.keys(FESTIVITY_PRESETS).map(function(key) {
-        return '<option value="' + key + '"' + (key === selectedTheme ? ' selected' : '') + '>' +
+        return '<option value="' + key + '" data-accent="' + FESTIVITY_PRESETS[key].accent + '"' + (key === selectedTheme ? ' selected' : '') + '>' +
             escapeHTML(FESTIVITY_PRESETS[key].label) + '</option>';
     }).join('');
     const savedMessage = url.searchParams.get('saved') === '1'
@@ -9106,7 +9106,7 @@ async function handleAdminFestivityPage(env, request) {
         '<button class="btn" type="submit">💾 Guardar y aplicar</button>' +
         '<a class="btn secondary" href="/admin/festividad">Cancelar cambios</a></form>' +
         '<section class="card"><h2>Qué cambia</h2><p class="muted">El estilo se aplica a las páginas HTML de Ocean Hub con una franja de celebración, destellos de color y acentos visuales. Se guarda en el KV existente, no necesita otro Worker ni variables nuevas y no modifica los chats, modelos, proveedores ni modos de Air Flow.</p></section>' +
-        '</main></body></html>';
+        '</main><script>(function(){var picker=document.getElementById("theme");var color=document.getElementById("accent");if(picker&&color){picker.addEventListener("change",function(){var option=picker.options[picker.selectedIndex];if(option&&option.dataset.accent){color.value=option.dataset.accent;}});}})();</script></body></html>';
     return new Response(html, {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
     });
