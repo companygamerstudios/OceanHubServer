@@ -7005,6 +7005,7 @@ async function handleAdminRoute(env, url, headers, request) {
         const resellerLink = `<a href="/admin/resellers" style="background:rgba(255,200,0,0.2);">👥 Revendedores</a>`;
         const userManagerLink = `<a href="/admin/users" style="background:rgba(0,200,255,0.2);">👤 Usuarios</a>`;
         const verificationPanelLink = `<a href="/admin/social" style="background:rgba(29,161,242,0.24);border:1px solid rgba(29,161,242,.55);">✔️ Panel de verificación</a>`;
+        const festivityPanelLink = '<a href="/admin/festividad" style="background:rgba(255,145,64,0.20);border:1px solid rgba(255,145,64,.5);">🎉 FESTIVIDAD</a>';
         const backupLink = `<button onclick="doBackup()" style="background:rgba(255,100,0,0.3);">💾 Backup</button>`;
         const uploadLink = `<button onclick="openUploadModal()" style="background:rgba(0,200,100,0.3);">📤 Subir CSV</button>`;
 
@@ -7314,6 +7315,7 @@ async function handleAdminRoute(env, url, headers, request) {
                 ${resellerLink}
                 ${userManagerLink}
                 ${verificationPanelLink}
+                ${festivityPanelLink}
                 ${backupLink}
                 ${uploadLink}
                 <button onclick="location.reload()">🔄 Refrescar</button>
@@ -9002,6 +9004,114 @@ async function handleAdminVerificationAuditPage(env, request) {
     return new Response(socialShell('Auditoría de verificación', '<h1>📋 Historial de verificación</h1>' + (cards || '<div class="card">Sin acciones registradas todavía.</div>') + '<p><a href="/admin/social">Volver al Panel de verificación</a></p>'), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
+
+const FESTIVITY_STORAGE_KEY = 'oh_festivity_config';
+
+async function handleAdminFestivityPage(env, request) {
+    const auth = await requireAdmin(env, request);
+    if (!auth) return new Response('No autorizado', { status: 403 });
+    const url = new URL(request.url);
+
+    if (request.method === 'POST') {
+        const origin = request.headers.get('Origin');
+        if (origin) {
+            try {
+                if (new URL(origin).origin !== url.origin) return new Response('Origen no permitido', { status: 403 });
+            } catch (_) {
+                return new Response('Origen no válido', { status: 403 });
+            }
+        }
+        let form;
+        try { form = await request.formData(); }
+        catch (_) { return new Response('Formulario inválido', { status: 400 }); }
+
+        const theme = String(form.get('theme') || 'none');
+        if (!Object.prototype.hasOwnProperty.call(FESTIVITY_PRESETS, theme)) {
+            return new Response('Tema de festividad no válido', { status: 400 });
+        }
+        const preset = FESTIVITY_PRESETS[theme];
+        const eventName = String(form.get('eventName') || '')
+            .replace(/[\u0000-\u001f\u007f]/g, '')
+            .trim()
+            .slice(0, 60);
+        const rawAccent = String(form.get('accent') || '');
+        const accent = /^#[0-9a-f]{6}$/i.test(rawAccent) ? rawAccent.toLowerCase() : preset.accent;
+        const actor = String(auth?.user?.email || auth?.email || 'admin').slice(0, 254);
+        const config = {
+            active: theme !== 'none',
+            theme,
+            label: theme === 'none' ? 'Sin festividad' : (eventName || (theme === 'custom' ? 'Celebración personalizada' : preset.label)),
+            accent,
+            updatedAt: new Date().toISOString(),
+            updatedBy: actor
+        };
+        await env.STATS.put(FESTIVITY_STORAGE_KEY, JSON.stringify(config));
+        return Response.redirect(new URL('/admin/festividad?saved=1', url.origin).toString(), 303);
+    }
+
+    if (request.method !== 'GET') return new Response('Método no permitido', { status: 405 });
+    let config = null;
+    try { config = await env.STATS.get(FESTIVITY_STORAGE_KEY, 'json'); } catch (_) {}
+    config = config && typeof config === 'object' ? config : { active: false, theme: 'none' };
+
+    const selectedTheme = Object.prototype.hasOwnProperty.call(FESTIVITY_PRESETS, config.theme) ? config.theme : 'none';
+    const preset = FESTIVITY_PRESETS[selectedTheme];
+    const accent = /^#[0-9a-f]{6}$/i.test(String(config.accent || '')) ? String(config.accent).toLowerCase() : preset.accent;
+    const label = String(config.label || (selectedTheme === 'none' ? 'Sin festividad' : preset.label)).slice(0, 60);
+    const active = selectedTheme !== 'none' && config.active !== false;
+    const options = Object.keys(FESTIVITY_PRESETS).map(function(key) {
+        return '<option value="' + key + '"' + (key === selectedTheme ? ' selected' : '') + '>' +
+            escapeHTML(FESTIVITY_PRESETS[key].label) + '</option>';
+    }).join('');
+    const savedMessage = url.searchParams.get('saved') === '1'
+        ? '<p class="notice" role="status">✅ La festividad se guardó correctamente y ya está aplicada a las páginas.</p>'
+        : '';
+    const status = active
+        ? '<strong class="active">● ACTIVADA</strong> <span>' + escapeHTML(label) + '</span>'
+        : '<strong class="inactive">● DESACTIVADA</strong> <span>Ocean Hub conserva su estilo habitual.</span>';
+    const updated = config.updatedAt
+        ? '<p class="muted">Último cambio: ' + escapeHTML(String(config.updatedAt).slice(0, 25)) +
+          ' · Administrador: ' + escapeHTML(String(config.updatedBy || 'admin')) + '</p>'
+        : '';
+
+    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<title>🎉 FESTIVIDAD · Ocean Hub Admin</title>' +
+        '<style>' +
+        'body{margin:0;padding:24px;min-height:100vh;background:#061522;color:#eafaff;font-family:Inter,system-ui,sans-serif}' +
+        '.wrap{max-width:900px;margin:0 auto}.top{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}' +
+        'h1{margin:.3em 0;color:#ffb36d}.muted{color:#a3c4d2;line-height:1.6}.card{margin:18px 0;padding:22px;border:1px solid #34576a;border-radius:20px;background:rgba(9,35,54,.8);box-shadow:0 18px 50px #0004}' +
+        'label{display:block;margin:16px 0 7px;font-weight:700}select,input[type=text],input[type=color]{width:100%;box-sizing:border-box;padding:12px;border-radius:12px;border:1px solid #527588;background:#071b2a;color:#eafaff;font:inherit}' +
+        'input[type=color]{height:52px;padding:5px;cursor:pointer}select:focus,input:focus{outline:2px solid #ffb36d;outline-offset:2px}' +
+        '.row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin:10px 8px 0 0;padding:12px 18px;border:1px solid #ffb36d;border-radius:999px;background:linear-gradient(135deg,#ffb36d,#ff7f5f);color:#201728;font-weight:800;text-decoration:none;cursor:pointer}' +
+        '.btn.secondary{background:rgba(15,56,75,.8);color:#eafaff;border-color:#527588}.notice{padding:13px 16px;border-radius:12px;background:rgba(50,190,135,.13);border:1px solid rgba(50,220,160,.45)}' +
+        '.active{color:#55e6b0}.inactive{color:#ffb36d}.status{display:flex;gap:12px;align-items:center;flex-wrap:wrap}' +
+        '.preview{display:inline-flex;gap:9px;align-items:center;padding:10px 14px;border-radius:999px;background:linear-gradient(135deg,var(--accent),var(--secondary));color:#061522;font-weight:800}' +
+        '@media(max-width:620px){body{padding:14px}.row{grid-template-columns:1fr}.card{padding:17px}}' +
+        '</style></head><body><main class="wrap">' +
+        '<div class="top"><div><p class="muted">OCEAN HUB · PANEL DE ADMINISTRACIÓN</p><h1>🎉 FESTIVIDAD</h1>' +
+        '<p class="muted">Controla el aspecto especial de Ocean Hub para eventos y temporadas.</p></div>' +
+        '<a class="btn secondary" href="/admin">← Volver a Admin</a></div>' +
+        savedMessage +
+        '<section class="card"><h2>Estado actual</h2><div class="status">' + status +
+        '<span class="preview" style="--accent:' + accent + ';--secondary:' + preset.secondary + '">' +
+        escapeHTML(preset.emoji) + ' ' + escapeHTML(label) + '</span></div>' + updated + '</section>' +
+        '<form class="card" method="post" action="/admin/festividad">' +
+        '<h2>Configurar temporada</h2><p class="muted">Elige un estilo, personaliza el nombre y ajusta el color principal. Pulsa Guardar para publicarlo o elige “🌊 Sin festividad” para volver al tema habitual.</p>' +
+        '<label for="theme">Estilo de festividad</label><select id="theme" name="theme">' + options + '</select>' +
+        '<div class="row"><div><label for="eventName">Nombre visible (opcional)</label>' +
+        '<input id="eventName" name="eventName" type="text" maxlength="60" value="' + escapeHTML(label) + '" placeholder="Ej. Halloween de Ocean Hub"></div>' +
+        '<div><label for="accent">Color principal</label><input id="accent" name="accent" type="color" value="' + accent + '"></div></div>' +
+        '<p class="muted">También puedes seleccionar “✨ Evento personalizado” y escribir cualquier celebración: aniversario, torneo, lanzamiento, fiesta del equipo, etc.</p>' +
+        '<button class="btn" type="submit">💾 Guardar y aplicar</button>' +
+        '<a class="btn secondary" href="/admin/festividad">Cancelar cambios</a></form>' +
+        '<section class="card"><h2>Qué cambia</h2><p class="muted">El estilo se aplica a las páginas HTML de Ocean Hub con una franja de celebración, destellos de color y acentos visuales. Se guarda en el KV existente, no necesita otro Worker ni variables nuevas y no modifica los chats, modelos, proveedores ni modos de Air Flow.</p></section>' +
+        '</main></body></html>';
+    return new Response(html, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+    });
+}
+
 async function handlePublicProfile(env, request, usernameParam) {
     const user = await socialGetUserByUsername(env, usernameParam);
     if (!user) {
@@ -10402,6 +10512,7 @@ export async function workerFetch(request, env) {
         if (path === '/verify-web') return await handleVerifyWeb(env, request);
         if (path === '/key-info') return await handleKeyInfo(env, request);
         if (path === '/admin') return await handleAdminRoute(env, url, request.headers, request);
+        if (path === '/admin/festividad') return await handleAdminFestivityPage(env, request);
         if (path === '/admin/compras') return await handleAdminCompras(env, url, request.headers);
         if (path === '/admin/encrypt-keys-at-rest') return await handleEncryptKeysAtRest(env, request);
         if (path === '/admin/migrate-key-index-hmac') return await handleMigrateKeyIndexHmac(env, request);
@@ -10665,7 +10776,67 @@ export function injectOceanLiquidGlassTheme(html) {
     return html + OCEAN_LIQUID_GLASS_CSS;
 }
 
-export async function applySecurityHeaders(response) {
+
+const FESTIVITY_PRESETS = {
+    none: { label: '🌊 Sin festividad (tema habitual)', emoji: '🌊', accent: '#69f0ec', secondary: '#4d91ff' },
+    summer: { label: '☀️ Verano', emoji: '☀️', accent: '#36d6c8', secondary: '#ffb24a' },
+    halloween: { label: '🎃 Halloween', emoji: '🎃', accent: '#ff8a37', secondary: '#9b6bff' },
+    christmas: { label: '🎄 Navidad', emoji: '🎄', accent: '#39d995', secondary: '#f45b69' },
+    newyear: { label: '✨ Año Nuevo', emoji: '✨', accent: '#ffd166', secondary: '#9b8cff' },
+    valentines: { label: '💗 San Valentín', emoji: '💗', accent: '#ff719e', secondary: '#e9a6ff' },
+    spring: { label: '🌸 Primavera', emoji: '🌸', accent: '#8bcf68', secondary: '#55d5bc' },
+    custom: { label: '✨ Evento personalizado', emoji: '✨', accent: '#69f0ec', secondary: '#8c8cff' }
+};
+
+function festivityHexToRgba(hex, alpha) {
+    const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ''));
+    if (!match) return 'rgba(105,240,236,' + alpha + ')';
+    return 'rgba(' + parseInt(match[1], 16) + ',' + parseInt(match[2], 16) + ',' +
+        parseInt(match[3], 16) + ',' + alpha + ')';
+}
+
+function injectFestivityTheme(html, config) {
+    if (typeof html !== 'string' || !/<html\b/i.test(html) || !config || config.active === false) return html;
+    const theme = String(config.theme || 'none');
+    const preset = FESTIVITY_PRESETS[theme];
+    if (!preset || theme === 'none') return html;
+
+    const accent = /^#[0-9a-f]{6}$/i.test(String(config.accent || ''))
+        ? String(config.accent).toLowerCase() : preset.accent;
+    const secondary = preset.secondary;
+    const accentGlow = festivityHexToRgba(accent, '0.24');
+    const accentEdge = festivityHexToRgba(accent, '0.46');
+    const label = escapeHTML(String(config.label || preset.label).replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 60));
+    const ribbon = '<div class="oh-festivity-banner" role="status"><span aria-hidden="true">' +
+        escapeHTML(preset.emoji) + '</span><span>' + label + '</span><span aria-hidden="true">' +
+        escapeHTML(preset.emoji) + '</span></div>';
+    const style = '<style id="oh-festivity-theme">' +
+        ':root{--oh-festivity-accent:' + accent + ';--oh-festivity-secondary:' + secondary + '}' +
+        'body::before{opacity:.94!important;background:radial-gradient(ellipse at 15% 35%,' + accentGlow +
+        ',transparent 34%),radial-gradient(ellipse at 82% 65%,' + festivityHexToRgba(secondary, '0.19') +
+        ',transparent 35%)!important;filter:blur(30px)}' +
+        '.oh-festivity-banner{position:sticky;top:0;z-index:99999;display:flex;gap:.55rem;align-items:center;justify-content:center;flex-wrap:wrap;min-height:22px;padding:8px 14px;background:linear-gradient(90deg,' +
+        accent + ',' + secondary + ');color:#061827;font:800 .9rem/1.25 Inter,system-ui,sans-serif;letter-spacing:.02em;text-align:center;border-bottom:1px solid ' +
+        accentEdge + ';box-shadow:0 5px 24px ' + accentGlow + ';}' +
+        '.oh-festivity-banner span{display:inline-block}body .card,body .panel,body .tile,body .glass,body .glass-card,body .section-card,body .service-card{border-color:' +
+        accentEdge + '!important}body button,body .btn,body input[type=submit],body input[type=button],body a.button,body .button{border-color:' +
+        accentEdge + '!important;background:linear-gradient(135deg,' + accent + ',' + secondary +
+        ')!important;color:#061827!important}body a:hover{color:' + accent + '!important}body h1{ text-shadow:0 0 28px ' +
+        accentGlow + '}body.light .oh-festivity-banner{color:#061827!important}' +
+        '@media(prefers-reduced-motion:reduce){.oh-festivity-banner{scroll-behavior:auto}}' +
+        '</style>';
+
+    let result = html;
+    if (/<\/head\s*>/i.test(result)) result = result.replace(/<\/head\s*>/i, function(match) { return style + match; });
+    else if (/<body\b[^>]*>/i.test(result)) result = result.replace(/(<body\b[^>]*>)/i, function(match) { return style + match; });
+    else result += style;
+    if (/<body\b[^>]*>/i.test(result)) {
+        result = result.replace(/(<body\b[^>]*>)/i, function(match) { return match + ribbon; });
+    }
+    return result;
+}
+
+export async function applySecurityHeaders(response, festivityConfig = null) {
     const headers = new Headers(response.headers);
     const contentType = headers.get('Content-Type') || '';
     let body = response.body;
@@ -10676,7 +10847,7 @@ export async function applySecurityHeaders(response) {
             const textBody = await response.text();
             const looksLikeHtml = /^(?:\uFEFF)?\s*(?:<!doctype\s+html|<html\b)/i.test(textBody);
             if (contentType.toLowerCase().includes('text/html') || looksLikeHtml) {
-                body = injectOceanLiquidGlassTheme(textBody);
+                body = injectFestivityTheme(injectOceanLiquidGlassTheme(textBody), festivityConfig);
                 headers.set('Content-Type', 'text/html; charset=utf-8');
                 headers.delete('Content-Length');
                 headers.delete('content-length');
@@ -10727,7 +10898,12 @@ export default {
         }
         try {
             const response = await workerFetch(request, env);
-            return await applySecurityHeaders(response);
+            let festivityConfig = null;
+            const responseType = (response.headers.get('Content-Type') || '').toLowerCase();
+            if (responseType.includes('text/html') || !responseType || responseType.startsWith('text/plain')) {
+                try { festivityConfig = await env.STATS.get(FESTIVITY_STORAGE_KEY, 'json'); } catch (_) {}
+            }
+            return await applySecurityHeaders(response, festivityConfig);
         } catch (error) {
             console.error('❌ Error no controlado en el Worker:', error);
             return await applySecurityHeaders(jsonResponse({
