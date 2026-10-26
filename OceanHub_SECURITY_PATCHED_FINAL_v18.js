@@ -9775,14 +9775,17 @@ async function handlePartyInvite(env, request, id) {
     const target = String(form.get('target') || '').trim();
     if (!target || target.length > 254) return communityErrorResponse(request, 'Invitación no válida', 'Indica un username o email.', '/parties');
     const party = await env.STATS.get('oh_party_' + id, 'json');
-    if (!party || party.cancelled || party.host_email !== me.email.toLowerCase()) return communityErrorResponse(request, 'No permitido', 'Solo el anfitrión puede invitar a una party activa.', '/parties');
+    if (!party || party.cancelled || Date.parse(party.expires_at || '') <= Date.now() || party.host_email !== me.email.toLowerCase()) return communityErrorResponse(request, 'No permitido', 'Solo el anfitrión puede invitar a una party activa.', '/parties');
+    if (!(await checkActionRateLimit(env, 'community-party-invite', me.email, 20, 3600))) return communityErrorResponse(request, 'Límite de invitaciones alcanzado', 'Puedes enviar hasta 20 invitaciones por hora.', '/parties');
     const user = target.includes('@') ? await getUserByEmail(env, target.toLowerCase()) : await socialGetUserByUsername(env, target);
     if (!user) return communityErrorResponse(request, 'Usuario no encontrado', 'Comprueba el username o email.', '/parties');
     const email = String(user.email || '').toLowerCase();
     if (!email || email === me.email.toLowerCase()) return communityErrorResponse(request, 'Invitación no válida', 'No puedes invitarte a ti mismo.', '/parties');
     if (await socialIsBlockedEither(env, me.email, email)) return communityErrorResponse(request, 'Invitación no permitida', 'No se puede invitar a esa cuenta.', '/parties');
     party.invited_emails = Array.isArray(party.invited_emails) ? party.invited_emails : [];
-    if (!party.invited_emails.includes(email) && !(party.members || []).includes(email)) party.invited_emails.push(email);
+    if ((party.members || []).includes(email)) return communityErrorResponse(request, 'Ya está en la party', 'Ese usuario ya pertenece a la party.', '/parties');
+    if (!party.invited_emails.includes(email) && party.invited_emails.length >= 50) return communityErrorResponse(request, 'Límite de invitados', 'Una party puede mantener hasta 50 invitaciones pendientes.', '/parties');
+    if (!party.invited_emails.includes(email)) party.invited_emails.push(email);
     await env.STATS.put('oh_party_' + id, JSON.stringify(party), { expirationTtl: 259200 });
     try { await socialPushNotif(env, email, { type: 'party_invite', title: 'Invitación a Game Party', body: '@' + me.username + ' te invita a jugar ' + String(party.game || 'un juego') + '.', from_username: me.username, href: '/parties' }); } catch (_) {}
     return communityRedirect(request, '/parties');
