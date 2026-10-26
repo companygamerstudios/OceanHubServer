@@ -125,3 +125,20 @@ test('Air Flow keeps its existing capabilities and exposes Gaming Copilot as an 
   assert.ok(source.includes("async function handleAirFlowChatV11"));
   assert.ok(source.includes("AF_MODE_RULES"));
 });
+
+test('Community content indexes retain newly created records for feed, parties, crews, events and reports', () => {
+  for (const label of ['posts', 'parties', 'crews', 'events', 'reports']) {
+    assert.ok(source.includes("'oh_community_index_" + label + "'") || source.includes("'oh_community_index_' + label"));
+  }
+  for (const prefix of ['oh_post_', 'oh_party_', 'oh_crew_', 'oh_event_', 'oh_report_']) {
+    assert.ok(source.includes("communityIndexAdd(env, '" + prefix + "'"), 'Missing index write for ' + prefix);
+  }
+  assert.ok(source.includes('slice(0, 1000)'), 'Indexes must remain bounded');
+});
+
+test('Friends presence uses a rate-limited heartbeat and respects invisible mode', () => {
+  assert.ok(source.includes("path === '/friends/presence'"));
+  assert.ok(source.includes('community-presence-heartbeat'));
+  assert.ok(source.includes("setInterval(function(){fetch('/friends/presence'"));
+  assert.ok(source.includes("status.status === 'invisible'"));
+});
