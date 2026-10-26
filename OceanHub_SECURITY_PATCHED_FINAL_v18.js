@@ -8738,6 +8738,9 @@ function socialPublicUser(user) {
         name: user.name || user.username || 'Usuario',
         verified: !!user.verified,
         bio: String(user.bio || '').slice(0, 280),
+        tagline: String(user.tagline || '').slice(0, 100),
+        favorite_game: String(user.favorite_game || '').slice(0, 60),
+        creator_link: /^https?:\/\//i.test(String(user.creator_link || '')) ? String(user.creator_link).slice(0, 300) : '',
         avatar_emoji: user.avatar_emoji || '👤',
         created_at: user.created_at || null,
         role: user.role === 'admin' ? 'admin' : 'user'
@@ -9063,7 +9066,10 @@ a.top{color:#7ecbff;text-decoration:none;font-size:13px}
     <div class="avatar">${escapeHTML(pub.avatar_emoji)}</div>
     <h1>${escapeHTML(pub.name)} ${badge}${adminBadge}</h1>
     <div class="user">@${escapeHTML(pub.username)}</div>
+    <p class="bio">${escapeHTML(pub.tagline || '')}</p>
     <p class="bio">${escapeHTML(pub.bio || 'Sin biografía todavía.')}</p>
+    ${pub.favorite_game ? '<p class="meta">🎮 Juego favorito: ' + escapeHTML(pub.favorite_game) + '</p>' : ''}
+    ${pub.creator_link ? '<p class="meta"><a rel="noopener noreferrer" target="_blank" href="' + escapeHTML(pub.creator_link) + '">🔗 Espacio del creador</a></p>' : ''}
     <div class="actions" id="actions">${actions}</div>
     <div class="meta">Miembro desde ${escapeHTML(String(pub.created_at||'').slice(0,10) || '—')}</div>
   </div>
@@ -9367,6 +9373,10 @@ async function communityGetStatus(env, email) {
     const saved = await env.STATS.get('oh_status_' + String(email || '').toLowerCase(), 'json');
     return { status: OH_STATUS_ALLOWED.includes(saved?.status) ? saved.status : 'online', note: String(saved?.note || '').slice(0, 80), updated_at: saved?.updated_at || null };
 }
+function communityCurrentSeason(date = new Date()) {
+    const quarter = Math.floor(date.getUTCMonth() / 3) + 1;
+    return { id: date.getUTCFullYear() + '-S' + quarter, label: 'Temporada ' + quarter + ' · ' + date.getUTCFullYear() };
+}
 async function communityAwardXp(env, email, points, reason, sourceId) {
     const normalizedEmail = String(email || '').toLowerCase();
     const amount = Math.max(0, Math.min(1000, Math.floor(Number(points) || 0)));
@@ -9374,17 +9384,27 @@ async function communityAwardXp(env, email, points, reason, sourceId) {
     const accountHash = (await hashKey(normalizedEmail)).slice(0, 32);
     const sourceHash = (await hashKey(String(reason) + ':' + String(sourceId))).slice(0, 32);
     const stateKey = 'oh_xp_' + accountHash, markerKey = 'oh_xpa_' + accountHash + '_' + sourceHash;
+    const season = communityCurrentSeason();
+    const seasonKey = 'oh_season_' + accountHash + '_' + season.id;
     await withKVLock(env, 'community-xp:' + accountHash, async () => {
         if (await env.STATS.get(markerKey)) return;
         const state = await env.STATS.get(stateKey, 'json') || { xp: 0, updated_at: null };
         state.xp = Math.max(0, Math.min(100000000, (Number(state.xp) || 0) + amount));
         state.updated_at = new Date().toISOString();
-        await env.STATS.put(stateKey, JSON.stringify(state)); await env.STATS.put(markerKey, '1');
+        const seasonal = await env.STATS.get(seasonKey, 'json') || { xp: 0, season_id: season.id, updated_at: null };
+        seasonal.xp = Math.max(0, Math.min(100000000, (Number(seasonal.xp) || 0) + amount));
+        seasonal.updated_at = state.updated_at;
+        await env.STATS.put(stateKey, JSON.stringify(state));
+        await env.STATS.put(seasonKey, JSON.stringify(seasonal));
+        await env.STATS.put(markerKey, '1');
     });
 }
 async function communityXpState(env, email) {
     const hash = (await hashKey(String(email || '').toLowerCase())).slice(0, 32);
-    return await env.STATS.get('oh_xp_' + hash, 'json') || { xp: 0, updated_at: null };
+    const season = communityCurrentSeason();
+    const lifetime = await env.STATS.get('oh_xp_' + hash, 'json') || { xp: 0, updated_at: null };
+    const seasonal = await env.STATS.get('oh_season_' + hash + '_' + season.id, 'json') || { xp: 0, season_id: season.id, updated_at: null };
+    return { ...lifetime, season: seasonal, season_label: season.label };
 }
 async function handleCommunityPresenceHeartbeat(env, request) {
     const auth = await requireAuth(env, request);
@@ -9432,7 +9452,9 @@ async function handleOceanXpPage(env, request) {
         { icon: '📅', name: 'Organizador', desc: 'Publica tu primer evento.', unlocked: events.length > 0 },
         { icon: '💎', name: 'Nivel 5', desc: 'Alcanza 400 XP.', unlocked: level >= 5 }
     ];
+    const seasonXp = Number(state.season && state.season.xp) || 0, seasonLevel = Math.floor(seasonXp / 100) + 1, seasonProgress = seasonXp % 100;
     const body = '<h1>🏆 Ocean XP</h1><p class="muted">Tu progreso gamer en Ocean Hub. La experiencia se conserva aunque cierres sesión.</p>' +
+        '<div class="card"><div class="row"><div><div class="muted">' + escapeHTML(state.season_label || 'Ocean Season') + '</div><div style="font-size:22px;font-weight:800">Nivel de temporada ' + seasonLevel + '</div></div><div style="text-align:right"><div class="muted">XP DE TEMPORADA</div><div style="font-size:24px;font-weight:800;color:#69f0ec">' + seasonXp + ' XP</div></div></div><div style="height:8px;background:#12283c;border-radius:99px;overflow:hidden;margin-top:12px"><div style="height:100%;width:' + seasonProgress + '%;background:linear-gradient(90deg,#24c6dc,#69f0ec)"></div></div><p class="muted">La temporada rota cada tres meses. Tu XP total no se reinicia.</p></div>' +
         '<div class="card"><div class="row"><div><div class="muted">NIVEL ACTUAL</div><div style="font-size:38px;font-weight:800">Nivel ' + level + '</div></div><div style="text-align:right"><div class="muted">EXPERIENCIA TOTAL</div><div style="font-size:28px;font-weight:800;color:#69f0ec">' + xp + ' XP</div></div></div><div style="height:10px;background:#12283c;border-radius:99px;overflow:hidden;margin-top:14px"><div style="height:100%;width:' + intoLevel + '%;background:linear-gradient(90deg,#24c6dc,#69f0ec);border-radius:99px"></div></div><p class="muted" style="margin-top:8px">' + intoLevel + ' / 100 XP hacia el nivel ' + (level + 1) + '.</p></div>' +
         '<div class="card"><h2>📊 Tu actividad</h2><div class="row"><span>Amigos aceptados</span><b>' + (friends.accepted || []).length + '</b></div><div class="row"><span>Publicaciones activas</span><b>' + posts.length + '</b></div><div class="row"><span>Parties creadas o visitadas</span><b>' + parties.length + '</b></div><div class="row"><span>Crews fundadas</span><b>' + crews.length + '</b></div><div class="row"><span>Eventos organizados</span><b>' + events.length + '</b></div></div>' +
         '<h2>🎖️ Insignias</h2><div class="card">' + badges.map(b => '<div class="row" style="padding:9px 0;border-bottom:1px solid var(--line)"><div style="display:flex;gap:10px;align-items:center"><span style="font-size:24px">' + b.icon + '</span><div><b>' + escapeHTML(b.name) + '</b><div class="muted">' + escapeHTML(b.desc) + '</div></div></div><span>' + (b.unlocked ? '✅' : '🔒') + '</span></div>').join('') + '</div><p class="muted">Gana XP al conectar con amigos, participar y crear contenido. No necesitas comprar nada para progresar.</p>';
@@ -9925,6 +9947,9 @@ async function handleEditProfileApi(env, request) {
             username: user.username,
             name: user.name,
             bio: user.bio || '',
+            tagline: user.tagline || '',
+            favorite_game: user.favorite_game || '',
+            creator_link: user.creator_link || '',
             avatar_emoji: user.avatar_emoji || '👤',
             verified: !!user.verified,
             profile: `/Profile/${user.username}`
@@ -9940,6 +9965,13 @@ async function handleEditProfileApi(env, request) {
     }
     if (body.bio !== undefined) {
         user.bio = String(body.bio || '').trim().slice(0, 280);
+    }
+    if (body.tagline !== undefined) user.tagline = String(body.tagline || '').trim().slice(0, 100);
+    if (body.favorite_game !== undefined) user.favorite_game = String(body.favorite_game || '').trim().slice(0, 60);
+    if (body.creator_link !== undefined) {
+        const creatorLink = String(body.creator_link || '').trim().slice(0, 300);
+        if (creatorLink && !/^https?:\/\//i.test(creatorLink)) return jsonResponse({ error: 'El enlace del creador debe empezar por https:// o http://' }, 400);
+        user.creator_link = creatorLink;
     }
     if (body.avatar_emoji !== undefined) {
         let emoji = String(body.avatar_emoji || '👤').trim().slice(0, 8);
@@ -9986,8 +10018,14 @@ async function handleEditProfilePage(env, request) {
           <input id="name" value="${escapeHTML(pub.name)}" maxlength="80" required>
           <label class="muted">Username (URL del perfil)</label>
           <input id="username" value="${escapeHTML(pub.username)}" maxlength="24" required pattern="[A-Za-z][A-Za-z0-9_]{2,23}">
+          <label class="muted">Frase personal (máx. 100)</label>
+          <input id="tagline" value="${escapeHTML(pub.tagline || '')}" maxlength="100" placeholder="Ej. Creador gamer construyendo mundos">
           <label class="muted">Bio (máx. 280)</label>
           <textarea id="bio" rows="3" maxlength="280">${escapeHTML(pub.bio || '')}</textarea>
+          <label class="muted">Juego favorito (máx. 60)</label>
+          <input id="favoriteGame" value="${escapeHTML(pub.favorite_game || '')}" maxlength="60" placeholder="Roblox, Minecraft…">
+          <label class="muted">Enlace de creador (opcional)</label>
+          <input id="creatorLink" type="url" value="${escapeHTML(pub.creator_link || '')}" maxlength="300" placeholder="https://…">
           <label class="muted">Avatar (emoji)</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <input id="avatar" value="${escapeHTML(pub.avatar_emoji)}" maxlength="8" style="width:80px;text-align:center;font-size:22px">
@@ -10008,7 +10046,7 @@ async function handleEditProfilePage(env, request) {
     document.querySelectorAll('[data-e]').forEach(function(b){b.onclick=function(){document.getElementById('avatar').value=b.dataset.e}});
     document.getElementById('editForm').onsubmit=async function(e){
       e.preventDefault();
-      var body={name:document.getElementById('name').value.trim(),username:document.getElementById('username').value.trim(),bio:document.getElementById('bio').value,avatar_emoji:document.getElementById('avatar').value.trim()};
+      var body={name:document.getElementById('name').value.trim(),username:document.getElementById('username').value.trim(),tagline:document.getElementById('tagline').value,favorite_game:document.getElementById('favoriteGame').value,creator_link:document.getElementById('creatorLink').value,bio:document.getElementById('bio').value,avatar_emoji:document.getElementById('avatar').value.trim()};
       try{
         var r=await fetch('/profile/edit',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         var d=await r.json().catch(function(){return{}});
