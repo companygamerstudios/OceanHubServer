@@ -114,7 +114,7 @@ test('Community features enforce length limits, rate limits and authenticated ow
   assert.ok(source.includes('El anfitrión debe cerrar la party'));
   assert.ok(source.includes('Solo el fundador puede disolver esta crew'));
   assert.ok(source.includes('Solo el organizador puede cancelar el evento'));
-  assert.ok(source.includes('mi estado'));
+  assert.ok(source.includes('Mi presencia'));
 });
 
 test('Air Flow keeps its existing capabilities and exposes Gaming Copilot as an additional mode', () => {
