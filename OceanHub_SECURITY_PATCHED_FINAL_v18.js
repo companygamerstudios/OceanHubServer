@@ -943,7 +943,7 @@ async function ensureOceanSellerIdentity(env, email, reseller, knownUser = null)
     const profile = user ? await socialEnsureUserMeta(env, user) : null;
     let changed = false;
     if (reseller.role !== 'reseller') { reseller.role = 'reseller'; changed = true; }
-    if (!reseller.seller_id) { reseller.seller_id = 'OH-' + generateRandomHex(16).slice(0,8).toUpperCase(); changed = true; }
+    if (!reseller.seller_id) { reseller.seller_id = 'OH-' + generateRandomHex(16).slice(0, 8).toUpperCase(); changed = true; }
     if (profile?.username && reseller.username !== profile.username) { reseller.username = profile.username; changed = true; }
     if (!Array.isArray(reseller.claves_asignadas)) { reseller.claves_asignadas = []; changed = true; }
     if (!Array.isArray(reseller.claves_vendidas)) { reseller.claves_vendidas = []; changed = true; }
