@@ -139,7 +139,7 @@ test('Community content indexes retain newly created records for feed, parties, 
 test('Friends presence uses a rate-limited heartbeat and respects invisible mode', () => {
   assert.ok(source.includes("path === '/friends/presence'"));
   assert.ok(source.includes('community-presence-heartbeat'));
-  assert.ok(source.includes("setInterval(function(){fetch('/friends/presence'"));
+  assert.ok(source.includes("function beat(){if(document.hidden)return;fetch('/friends/presence'"));
   assert.ok(source.includes("status.status === 'invisible'"));
 });
 
@@ -240,4 +240,27 @@ test('OceanHub Staff and OceanHub Sellers remain separate account roles', () => 
   assert.match(source, /if \(user\.role !== 'reseller' \|\| !resellerRecord/);
   assert.ok(source.includes('OceanHub Staff · Admin'));
   assert.ok(source.includes('OceanHub Sellers · Vendedor'));
+});
+
+
+test('Friends now uses low-latency presence snapshots and refreshes without reloading the page', () => {
+  assert.ok(source.includes("url.pathname === '/realtime/presence/batch'"));
+  assert.ok(source.includes("communityRealtimeCall(env, '/realtime/presence/batch'"));
+  assert.ok(source.includes("path === '/friends/presence'"));
+  assert.ok(source.includes("setInterval(refreshPresence,10000)"));
+  assert.ok(source.includes("status_label: isOnline ?"));
+  assert.ok(source.includes("communityRemovePresence(env, me.email)"));
+});
+
+test('private chat shows each sender avatar and name, and typing state uses the Durable Object', () => {
+  assert.ok(source.includes('class="message-avatar"'));
+  assert.ok(source.includes('class="message-author"'));
+  assert.ok(source.includes('id="typingIndicator"'));
+  assert.ok(source.includes("async function handleDmTypingApi"));
+  assert.ok(source.includes("url.pathname === '/realtime/typing/set'"));
+  assert.ok(source.includes("url.pathname === '/realtime/typing/get'"));
+  assert.ok(source.includes("setInterval(refreshTyping,2500)"));
+  assert.ok(source.includes("setInterval(function(){load().catch(function(){})},5000)"));
+  assert.ok(source.includes("socialShell('Chat con ' + pub.name"));
+  assert.ok(source.includes("function beat(){if(document.hidden)return;fetch('/friends/presence'"));
 });
