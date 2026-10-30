@@ -27,6 +27,8 @@ The authenticated community shell and main sidebar include these features:
 - **Ocean Arena:** create tournaments, set a start time and participant cap, and join/leave or cancel as the organizer at `/arena`.
 - **Air Flow Studio:** save private prompt drafts at `/air-flow-studio`, copy a draft and open the existing `/air-flow` assistant. It is an add-on; it does not replace the Air Flow engine or remove modes/providers.
 
+- **OceanHub Sellers:** administrators assign the `reseller` role to approved accounts. Sellers receive a stable OceanHub ID (`OH-XXXXXXXX`), use their public `@username`, and see a rank panel (Starter, Growth, Pro, Elite, Legend). Rank progress uses the existing recorded `claves_vendidas` data; it does not invent sales. Profile verification is shown only when the account is actually verified. Administrators are labelled **OceanHub Staff** and manage sellers from `/admin/sellers`; the summary endpoint is admin-gated and returns no assigned key material. Account permissions are enforced by backend roles, never by display names.
+
 All community pages require an authenticated session, and administrator verification pages require the admin role. These additions use the existing Worker storage binding; they do not require a new Worker or an external R2 bucket.
 
 ## Production deployment
