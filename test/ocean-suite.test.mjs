@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleOceanSuiteRoute, oceanSuiteFeatures, getVerifiedBadge, renderVerifiedBadge } from "../ocean-suite.js";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const workerSource = await readFile(new URL("../OceanHub_SECURITY_PATCHED_FINAL_v18.js", import.meta.url), "utf8");
@@ -237,6 +238,49 @@ test("public verification proof must use HTTPS and the admin queue is protected"
   assert.equal(invalid.status, 400);
   const denied = await handleOceanSuiteRoute(request("/admin/ocean-verifications"), user.env, user.deps);
   assert.equal(denied.status, 403);
+});
+
+
+test("legacy pending verification requests migrate into the single OceanHub Verified review queue", async () => {
+  const applicant = setup({ email: "legacy@example.test", name: "Legacy User", username: "legacyuser", role: "user" });
+  const emailHash = createHash("sha256").update("legacy@example.test").digest("hex").slice(0, 32);
+  const legacyId = "a".repeat(32);
+  await applicant.store.put("oh_verreq_user_" + emailHash, legacyId);
+  await applicant.store.put("oh_verreq_index", JSON.stringify([legacyId]));
+  await applicant.store.put("oh_verreq_" + legacyId, JSON.stringify({
+    id: legacyId, email: "legacy@example.test", username: "legacyuser",
+    reason: "Esta es una solicitud anterior que debe conservarse en el nuevo centro.",
+    state: "pending", created_at: "2026-10-28T12:00:00.000Z",
+    handled_at: null, handled_by: null, decision_reason: ""
+  }));
+  const admin = setup({ email: "admin@example.test", name: "Admin", role: "admin" });
+  admin.env.STATS = applicant.store;
+  admin.deps.sendEmail = async () => true;
+
+  const queue = await handleOceanSuiteRoute(request("/admin/ocean-verifications"), admin.env, admin.deps);
+  const html = await queue.text();
+  assert.equal(queue.status, 200);
+  assert.match(html, /Solicitud heredada del sistema anterior/);
+  const app = await applicant.store.get("oh_suite_verification_app_" + legacyId, "json");
+  assert.equal(app.status, "pending");
+  assert.equal(app.legacy, true);
+
+  const userPage = await handleOceanSuiteRoute(request("/ocean/verified"), applicant.env, applicant.deps);
+  assert.match(await userPage.text(), /Solicitud pendiente/);
+
+  const decision = await handleOceanSuiteRoute(
+    request("/admin/ocean-verifications/" + legacyId, "POST", new URLSearchParams({
+      decision: "approve", reason: "La cuenta fue confirmada por el equipo."
+    })),
+    admin.env,
+    admin.deps
+  );
+  assert.equal(decision.status, 200);
+  const badge = await getVerifiedBadge(applicant.env, "legacy@example.test");
+  assert.equal(badge.type, "public_figure");
+  const oldRecord = await applicant.store.get("oh_verreq_" + legacyId, "json");
+  assert.equal(oldRecord.state, "approved");
+  assert.equal(oldRecord.handled_by, "admin@example.test");
 });
 
 test("main Worker wires Ocean Suite behind the existing auth gates", () => {

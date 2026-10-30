@@ -55,3 +55,12 @@ La barra lateral de Inicio contiene el enlace **Ocean Suite**.
 La rama de trabajo no publica a producción. El Pull Request ejecuta los controles de calidad; el workflow de producción se activa únicamente al llegar un commit a main, de acuerdo con deploy-production.yml.
 
 \n## OceanHub Verified\n\n- La insignia azul identifica una figura pública cuya presencia pública fue revisada por Staff.\n- La insignia amarilla identifica una empresa o a una persona con afiliación confirmada; el registro conserva el nombre de la empresa y la relación declarada.\n- El usuario presenta una solicitud con un enlace público HTTPS y una explicación. No se solicitan documentos de identidad ni credenciales.\n- Las solicitudes quedan pendientes y no conceden insignias automáticamente. Solo cuentas con rol admin y 2FA exigido por la configuración pueden aprobar, rechazar o retirar insignias.\n- La aprobación, rechazo o retirada se registra en KV. OceanHub intenta enviar un correo mediante Brevo y una notificación interna cuando el servicio está disponible; la decisión queda guardada aunque el proveedor de correo no acepte el mensaje.\n- Una insignia solo se representa si existe un registro activo del lado del servidor. El usuario no puede asignarla editando su perfil.\n- La revisión de evidencia y la confirmación de afiliación son decisiones humanas de Staff; un enlace por sí solo no constituye una garantía automática de autenticidad.\n
+
+## Unificación de rutas de verificación
+
+- La única página para solicitar insignias es `/ocean/verified`; las URLs antiguas `/verification/request` redirigen allí.
+- El único centro de revisión es `/admin/ocean-verifications`; `/admin/social`, `/admin/verificacion` y `/admin/verification-requests` redirigen allí.
+- El antiguo endpoint manual `/admin/verify-user` está retirado (HTTP 410). Las insignias nuevas solo se conceden desde OceanHub Verified.
+- Las solicitudes antiguas se migran al nuevo centro cuando se abre la cola administrativa. Se conservan fecha, motivo y cuenta; se identifican como heredadas porque no incluyen enlace de evidencia.
+- `/admin/verification-audit` permanece como archivo histórico de decisiones antiguas; no permite revisar ni aprobar solicitudes.
+- Los menús del usuario y el panel administrativo enlazan a las rutas oficiales nuevas.

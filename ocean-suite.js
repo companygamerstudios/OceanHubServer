@@ -174,6 +174,82 @@ export function renderVerifiedBadge(badge) {
   return '<span class="oh-verified-mark" role="img" aria-label="' + label + '" title="' + label + '" style="display:inline-flex;vertical-align:-5px;margin-left:5px;width:25px;height:25px;align-items:center;justify-content:center;flex:0 0 auto"><svg viewBox="0 0 512 512" width="25" height="25" aria-hidden="true" focusable="false"><path d="' + path + '" fill="' + (gold ? "#FFC107" : "#2997E5") + '" fill-rule="evenodd"/></svg></span>';
 }
 function verificationTypeLabel(type) { return type === "company_affiliation" ? "Empresa o afiliación" : "Figura pública"; }
+
+
+const MAX_LEGACY_VERIFICATION_MIGRATION = 500;
+
+async function migrateLegacyVerificationRecord(env, deps, legacyId) {
+  const id = String(legacyId || "").toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(id)) return null;
+  const legacyKey = "oh_verreq_" + id;
+  const legacy = await getJson(env, legacyKey, null);
+  if (!legacy || !legacy.email || !["pending", "approved", "rejected"].includes(legacy.state)) return null;
+  const email = String(legacy.email).trim().toLowerCase();
+  const hash = await accountKey(email);
+  const appKey = "oh_suite_verification_app_" + id;
+  return runLocked(deps, env, "verification-legacy:" + hash, async function () {
+    const alreadyMigrated = await getJson(env, appKey, null);
+    if (alreadyMigrated) return alreadyMigrated;
+    const currentPointer = await getJson(env, "oh_suite_verification_user_" + hash, null);
+    if (currentPointer) {
+      const currentApplication = await getJson(env, currentPointer, null);
+      if (currentApplication && ["pending", "approved"].includes(currentApplication.status)) return null;
+    }
+    const status = legacy.state;
+    const createdAt = legacy.created_at || new Date().toISOString();
+    const application = {
+      id: id,
+      owner_hash: hash,
+      owner_email: email,
+      owner_name: String(legacy.username || email.split("@")[0]).slice(0, 80),
+      type: "public_figure",
+      company_name: "",
+      affiliation_role: "",
+      proof_url: "",
+      statement: String(legacy.reason || "Solicitud del sistema de verificación anterior.").slice(0, 600),
+      status: status,
+      created_at: createdAt,
+      updated_at: new Date().toISOString(),
+      legacy: true,
+      legacy_request_id: id,
+      review_note: String(legacy.decision_reason || "").slice(0, 400),
+      reviewed_by: String(legacy.handled_by || "").slice(0, 160),
+      reviewed_at: legacy.handled_at || null
+    };
+    await putJson(env, appKey, application);
+    await putJson(env, "oh_suite_verification_user_" + hash, appKey);
+    const index = await getJson(env, "oh_suite_verifications_index", []);
+    await putJson(env, "oh_suite_verifications_index", [appKey].concat((Array.isArray(index) ? index : []).filter(function (key) { return key !== appKey; })).slice(0, MAX_VERIFICATION_REQUESTS));
+    if (status === "approved") {
+      const currentBadge = await getJson(env, "oh_suite_verified_" + hash, null);
+      if (!currentBadge || currentBadge.active !== true) {
+        await putJson(env, "oh_suite_verified_" + hash, {
+          active: true,
+          type: "public_figure",
+          company_name: "",
+          affiliation_role: "",
+          verified_at: legacy.handled_at || createdAt,
+          verified_by: String(legacy.handled_by || "legacy-verification-migration").slice(0, 160),
+          migrated_from_legacy: true
+        });
+      }
+    }
+    return application;
+  });
+}
+
+async function migrateLegacyVerificationRequests(env, deps) {
+  const ids = await getJson(env, "oh_verreq_index", []);
+  const legacyIds = Array.isArray(ids) ? ids.slice(0, MAX_LEGACY_VERIFICATION_MIGRATION) : [];
+  for (let i = 0; i < legacyIds.length; i += 20) {
+    const batch = legacyIds.slice(i, i + 20);
+    await Promise.all(batch.map(function (id) {
+      return migrateLegacyVerificationRecord(env, deps, id).catch(function () { return null; });
+    }));
+  }
+}
+
+
 function validPublicProofUrl(value) {
   const raw = String(value || "").trim().slice(0, 500);
   try {
@@ -256,8 +332,15 @@ async function handleUserVerification(request, env, auth, deps) {
   const email = String(auth.user.email || "").trim().toLowerCase();
   const hash = await accountKey(email);
   const badge = await getVerifiedBadge(env, email);
-  const appKey = await getJson(env, "oh_suite_verification_user_" + hash, null);
-  const app = appKey ? await getJson(env, appKey, null) : null;
+  let appKey = await getJson(env, "oh_suite_verification_user_" + hash, null);
+  let app = appKey ? await getJson(env, appKey, null) : null;
+  if (!app && env.STATS) {
+    const legacyId = await env.STATS.get("oh_verreq_user_" + hash);
+    if (legacyId) {
+      app = await migrateLegacyVerificationRecord(env, deps, legacyId);
+      appKey = app ? "oh_suite_verification_app_" + app.id : null;
+    }
+  }
   let statusHtml = '<section class="card"><h2>¿Quieres verificar tu cuenta?</h2><p>Elige una insignia y envía un enlace público con información que permita revisar tu solicitud.</p></section>';
   let canApply = true;
   if (badge) {
@@ -276,13 +359,15 @@ async function handleUserVerification(request, env, auth, deps) {
 async function handleAdminVerifications(request, env, admin, deps, url) {
   if (!(await isFeatureEnabled(env, "verification_system"))) return page("OceanHub Verified desactivado", "<p>El sistema está desactivado desde Feature Control.</p>", { admin: true });
   if (url.pathname === "/admin/ocean-verifications" && request.method === "GET") {
+    await migrateLegacyVerificationRequests(env, deps);
     const apps = await listIndexed(env, "oh_suite_verifications_index", MAX_VERIFICATION_REQUESTS);
     apps.sort((a,b) => (b.status === "pending") - (a.status === "pending") || String(b.created_at).localeCompare(String(a.created_at)));
     const cards = [];
     for (const app of apps) {
       const badge = await getVerifiedBadge(env, app.owner_email);
       const proof = validPublicProofUrl(app.proof_url);
-      const details = '<p class="muted">' + esc(app.owner_email) + ' · ' + esc(new Date(app.created_at).toLocaleString("es-DO")) + '</p><p><strong>Tipo:</strong> ' + esc(verificationTypeLabel(app.type)) + (app.company_name ? ' · <strong>Empresa:</strong> ' + esc(app.company_name) : '') + (app.affiliation_role ? ' · <strong>Relación:</strong> ' + esc(app.affiliation_role) : '') + '</p><p><strong>Enlace:</strong> ' + (proof ? '<a href="' + esc(proof) + '" target="_blank" rel="noopener noreferrer">Abrir evidencia pública ↗</a>' : "No disponible") + '</p><p>' + esc(app.statement) + '</p>';
+      const legacyNotice = app.legacy ? '<p class="notice">Solicitud heredada del sistema anterior. No contiene enlace de evidencia; revisa su descripción y pide nueva evidencia si no puedes confirmar la cuenta.</p>' : "";
+      const details = '<p class="muted">' + esc(app.owner_email) + ' · ' + esc(new Date(app.created_at).toLocaleString("es-DO")) + '</p><p><strong>Tipo:</strong> ' + esc(verificationTypeLabel(app.type)) + (app.company_name ? ' · <strong>Empresa:</strong> ' + esc(app.company_name) : '') + (app.affiliation_role ? ' · <strong>Relación:</strong> ' + esc(app.affiliation_role) : '') + '</p><p><strong>Enlace:</strong> ' + (proof ? '<a href="' + esc(proof) + '" target="_blank" rel="noopener noreferrer">Abrir evidencia pública ↗</a>' : (app.legacy ? "Solicitud antigua sin enlace de evidencia" : "No disponible")) + '</p><p>' + esc(app.statement) + '</p>' + legacyNotice;
       let controls = "";
       if (app.status === "pending") controls = '<form method="post" action="/admin/ocean-verifications/' + esc(app.id) + '"><label>Decisión</label><select name="decision" required><option value="">Selecciona…</option><option value="approve">Aprobar</option><option value="reject">Rechazar</option></select><label>Nota (obligatoria al rechazar)</label><textarea name="reason" maxlength="400" placeholder="Explica brevemente la decisión."></textarea><button type="submit">Guardar decisión</button></form>';
       else if (app.status === "approved" && badge) controls = '<form method="post" action="/admin/ocean-verifications/' + esc(app.id) + '"><input type="hidden" name="decision" value="revoke"><label>Motivo para retirar la insignia</label><textarea name="reason" maxlength="400" minlength="6" required></textarea><button type="submit">Retirar insignia</button></form>';
@@ -329,6 +414,17 @@ async function handleAdminVerifications(request, env, admin, deps, url) {
     app.reviewed_by = String(admin.user.email || "").slice(0, 160);
     app.reviewed_at = new Date().toISOString();
     await putJson(env, key, app);
+    if (app.legacy_request_id) {
+      const legacyKey = "oh_verreq_" + app.legacy_request_id;
+      const legacyRecord = await getJson(env, legacyKey, null);
+      if (legacyRecord) {
+        legacyRecord.state = app.status === "approved" ? "approved" : "rejected";
+        legacyRecord.handled_at = app.reviewed_at;
+        legacyRecord.handled_by = app.reviewed_by;
+        legacyRecord.decision_reason = reason || (app.status === "approved" ? "Migrada y aprobada desde OceanHub Verified." : "Revisada desde OceanHub Verified.");
+        await putJson(env, legacyKey, legacyRecord);
+      }
+    }
     return { application: app };
   });
   if (result.error) return json({ error: result.error }, result.status);
@@ -698,3 +794,4 @@ export async function handleOceanSuiteRoute(request, env, deps) {
 }
 
 export const oceanSuiteFeatures = FEATURE_DEFINITIONS.map(function (item) { return item.id; });
+export { migrateLegacyVerificationRequests };
