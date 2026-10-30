@@ -249,7 +249,7 @@ test("main Worker wires Ocean Suite behind the existing auth gates", () => {
   assert.match(workerSource, /handleOceanSuiteRoute\(request, env/);
   assert.match(workerSource, /const verifiedBadge = await getVerifiedBadge\(env, u\.email\)/);
   assert.match(workerSource, /const badge = renderVerifiedBadge\(verifiedBadge\)/);
-  assert.match(workerSource, /<h1>\$\{escapeHTML\(pub\.name\)\} \$\{badge\}\$\{adminBadge\}<\\/h1>/);
+  assert.ok(workerSource.includes('<h1>${escapeHTML(pub.name)} ${badge}${adminBadge}</h1>'));
 });
 
 test("every new feature flag gates its module, including mutating routes", () => {
