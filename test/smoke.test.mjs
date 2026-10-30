@@ -144,19 +144,20 @@ test('Friends presence uses a rate-limited heartbeat and respects invisible mode
 });
 
 
-test('Admin verification center is reachable from the main admin panel and stays admin-gated', () => {
-  assert.match(source, /const verificationPanelLink = .*href="\/admin\/social"/);
+test('the admin dashboard links to the unified OceanHub Verified center', () => {
+  assert.match(source, /const verificationPanelLink = .*href="\/admin\/ocean-verifications"/);
   assert.match(source, /\$\{verificationPanelLink\}/);
-  assert.match(source, /async function handleAdminSocialPage\(env, request\)[\s\S]{0,180}requireAdmin\(env, request\)/);
-  assert.ok(source.includes("if (path === '/admin/social' || path === '/admin/verificacion')"));
+  assert.ok(source.includes("path === '/admin/social' || path === '/admin/verificacion' || path === '/admin/verification-requests'"));
+  assert.ok(source.includes("new URL('/admin/ocean-verifications', request.url)"));
+  assert.ok(source.includes("if (path === '/admin/verify-user') return await handleAdminVerifyUser(env, request);"));
+  assert.match(source, /async function handleAdminVerifyUser\(env, request\)[\s\S]{0,260}410/);
 });
 
-test('Ocean Verified records reasons and actors, supports user requests, and reviews them only as admin', () => {
-  assert.ok(source.includes('async function ohRecordVerificationAudit'));
-  assert.ok(source.includes("'oh_verified_audit'"));
-  assert.ok(source.includes("if (path === '/verification/request')"));
-  assert.ok(source.includes("if (path === '/admin/verification-requests')"));
-  assert.ok(source.includes("if (path === '/admin/verification-audit')"));
+test('legacy verification URLs converge on OceanHub Verified while audit data remains archived', () => {
+  assert.ok(source.includes("if (path === '/verification/request') {"));
+  assert.ok(source.includes("new URL('/ocean/verified', request.url)"));
+  assert.ok(source.includes("if (request.method !== 'GET' && request.method !== 'HEAD')"));
+  assert.ok(source.includes("if (path === '/admin/verification-audit') return await handleAdminVerificationAuditPage(env, request);"));
   assert.ok(source.includes('async function handleVerificationRequestPage'));
   assert.ok(source.includes('async function handleAdminVerificationRequestsPage'));
   assert.ok(source.includes("source: 'user-request'"));
