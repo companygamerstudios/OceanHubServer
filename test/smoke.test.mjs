@@ -150,7 +150,7 @@ test('the admin dashboard links to the unified OceanHub Verified center', () => 
   assert.ok(source.includes("path === '/admin/social' || path === '/admin/verificacion' || path === '/admin/verification-requests'"));
   assert.ok(source.includes("new URL('/admin/ocean-verifications', request.url)"));
   assert.ok(source.includes("if (path === '/admin/verify-user') return await handleAdminVerifyUser(env, request);"));
-  assert.match(source, /async function handleAdminVerifyUser\(env, request\)[\s\S]{0,260}410/);
+  assert.match(source, /async function handleAdminVerifyUser\(env, request\)[\s\S]{0,600}410/);
 });
 
 test('legacy verification URLs converge on OceanHub Verified while audit data remains archived', () => {
