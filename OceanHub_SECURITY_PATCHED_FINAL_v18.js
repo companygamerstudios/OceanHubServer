@@ -6380,9 +6380,9 @@ async function handleHacerReseller(env, request) {
     if (!reseller) {
         reseller = { email, role: 'reseller', saldo: 0, comision_porcentaje: requestedPercent, claves_asignadas: [], claves_vendidas: [], total_vendido: 0, total_comisiones: 0, created_at: new Date().toISOString() };
     } else reseller.comision_porcentaje = requestedPercent;
+    const identity = await ensureOceanSellerIdentity(env, email, reseller, user);
     user.role = 'reseller';
     await env.STATS.put(`user_${email}`, JSON.stringify(user));
-    const identity = await ensureOceanSellerIdentity(env, email, reseller, user);
     await logAdminAction(env, 'hacer_reseller', email, getClientIP(request), { porcentaje: requestedPercent, seller_id: identity.reseller.seller_id });
     return jsonResponse({ message: `@${identity.user?.username || email} ahora es Ocean Seller con ID ${identity.reseller.seller_id} y ${identity.reseller.comision_porcentaje}% de comisión` });
 }
@@ -7822,8 +7822,6 @@ async function handleAdminUserAction(env, request) {
     if (action === 'role') {
         if (!['user', 'admin', 'reseller'].includes(role)) return jsonResponse({ error: 'Rol no válido' }, 400);
         if (role === 'reseller' && user.role === 'admin') return jsonResponse({ error: 'Las cuentas de OceanHub Staff no pueden convertirse en vendedores.' }, 409);
-        user.role = role;
-        await env.STATS.put(`user_${email}`, JSON.stringify(user));
         if (role === 'reseller') {
             let reseller = await getReseller(env, email);
             if (!reseller) reseller = {
@@ -7833,6 +7831,8 @@ async function handleAdminUserAction(env, request) {
             };
             await ensureOceanSellerIdentity(env, email, reseller, user);
         }
+        user.role = role;
+        await env.STATS.put(`user_${email}`, JSON.stringify(user));
         await logAdminAction(env, 'change_role', email, getClientIP(request), { newRole: role });
         return jsonResponse({ message: `Rol de ${email} actualizado a ${role === 'admin' ? 'OceanHub Staff' : role === 'reseller' ? 'OceanHub Sellers' : 'Usuario'}` });
     } else if (action === 'delete') {
