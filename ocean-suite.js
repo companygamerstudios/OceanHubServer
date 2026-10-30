@@ -10,7 +10,8 @@ const FEATURE_DEFINITIONS = Object.freeze([
   { id: "developer_hub", label: "OceanHub Developer Hub", description: "Documentación y guías de integración." },
   { id: "launcher", label: "OceanHub Launcher", description: "Acceso centralizado a juegos, eventos y proyectos." },
   { id: "air_flow_workspace", label: "Air Flow Workspace", description: "Accesos y estado de configuración sin exponer secretos." },
-  { id: "backup_center", label: "OceanHub Backup Center", description: "Procedimientos seguros; exportación cifrada aún no habilitada." }
+  { id: "backup_center", label: "OceanHub Backup Center", description: "Procedimientos seguros; exportación cifrada aún no habilitada." },
+  { id: "verification_system", label: "OceanHub Verified", description: "Solicitudes de insignia azul para figuras públicas y amarilla para empresas o afiliados." }
 ]);
 
 const DEFAULT_FLAGS = Object.freeze({
@@ -21,7 +22,8 @@ const DEFAULT_FLAGS = Object.freeze({
   developer_hub: true,
   launcher: true,
   air_flow_workspace: true,
-  backup_center: true
+  backup_center: true,
+  verification_system: true
 });
 
 const MAX_TICKETS_PER_USER = 30;
@@ -73,7 +75,7 @@ function page(title, body, options) {
     body,
     '<footer class="footer">OceanHub · Protegemos tus datos y mantenemos las funciones sujetas a permisos del servidor.</footer></main></body></html>'
   ].join("");
-  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+  return new Response(html, { status: Number.isInteger(opts.status) ? opts.status : 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 }
 
 function redirect(request, path) {
@@ -149,6 +151,191 @@ async function listIndexed(env, indexKey, maximum) {
 async function notify(deps, env, email, payload) {
   if (typeof deps.socialPushNotif !== "function") return;
   try { await deps.socialPushNotif(env, email, payload); } catch (_) {}
+}
+
+
+const MAX_VERIFICATION_REQUESTS = 500;
+const BLUE_BADGE_OUTER = "M 247 43 L 232 49 L 197 80 L 186 87 L 173 91 L 126 91 L 111 96 L 101 104 L 91 124 L 91 169 L 87 185 L 81 195 L 48 234 L 43 248 L 43 263 L 50 280 L 81 316 L 87 326 L 91 342 L 91 387 L 96 400 L 103 409 L 115 417 L 126 420 L 173 420 L 181 422 L 193 428 L 234 463 L 247 468 L 264 468 L 282 460 L 316 430 L 328 423 L 339 420 L 390 419 L 404 412 L 413 403 L 420 386 L 420 340 L 423 328 L 430 316 L 464 276 L 468 265 L 468 247 L 462 232 L 429 194 L 423 183 L 420 173 L 419 121 L 412 107 L 404 99 L 385 91 L 338 91 L 328 88 L 317 82 L 279 49 L 264 43 Z";
+const BLUE_BADGE_CUTOUT = "M 349 199 L 349 208 L 346 214 L 240 320 L 234 323 L 221 321 L 164 264 L 162 259 L 163 249 L 170 241 L 175 239 L 185 240 L 230 284 L 324 190 L 338 188 Z";
+const GOLD_BADGE_OUTER = "M 180 11 L 168 16 L 156 27 L 145 47 L 138 69 L 129 84 L 73 89 L 59 95 L 47 107 L 42 119 L 41 136 L 53 189 L 9 229 L 0 249 L 1 266 L 9 282 L 53 321 L 52 333 L 41 375 L 42 392 L 47 404 L 55 413 L 73 422 L 129 427 L 138 442 L 152 478 L 165 493 L 180 500 L 201 499 L 215 493 L 243 474 L 258 469 L 302 496 L 314 500 L 331 500 L 343 495 L 355 484 L 366 464 L 373 442 L 382 427 L 438 422 L 452 416 L 464 404 L 469 392 L 470 375 L 458 322 L 502 282 L 511 262 L 510 245 L 502 229 L 458 190 L 459 178 L 470 136 L 469 119 L 464 107 L 452 95 L 438 89 L 382 84 L 373 69 L 359 33 L 346 18 L 331 11 L 310 12 L 296 18 L 268 37 L 254 42 L 209 15 L 197 11 Z";
+const GOLD_BADGE_CUTOUT = "M 357 196 L 357 208 L 354 214 L 241 327 L 235 330 L 223 330 L 214 325 L 159 270 L 154 261 L 154 250 L 158 242 L 167 235 L 181 234 L 190 239 L 229 278 L 323 184 L 333 180 L 345 182 L 354 190 Z";
+
+export async function getVerifiedBadge(env, email) {
+  if (!email || !env || !env.STATS) return null;
+  const hash = await accountKey(email);
+  const badge = await getJson(env, "oh_suite_verified_" + hash, null);
+  return badge && badge.active === true ? badge : null;
+}
+export function renderVerifiedBadge(badge) {
+  if (!badge || badge.active !== true) return "";
+  const gold = badge.type === "company_affiliation";
+  const label = gold ? "Empresa o afiliación verificada" : "Figura pública verificada";
+  const path = gold ? GOLD_BADGE_OUTER + " " + GOLD_BADGE_CUTOUT : BLUE_BADGE_OUTER + " " + BLUE_BADGE_CUTOUT;
+  return '<span class="oh-verified-mark" role="img" aria-label="' + label + '" title="' + label + '" style="display:inline-flex;vertical-align:-5px;margin-left:5px;width:25px;height:25px;align-items:center;justify-content:center;flex:0 0 auto"><svg viewBox="0 0 512 512" width="25" height="25" aria-hidden="true" focusable="false"><path d="' + path + '" fill="' + (gold ? "#FFC107" : "#2997E5") + '" fill-rule="evenodd"/></svg></span>';
+}
+function verificationTypeLabel(type) { return type === "company_affiliation" ? "Empresa o afiliación" : "Figura pública"; }
+function validPublicProofUrl(value) {
+  const raw = String(value || "").trim().slice(0, 500);
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" || !parsed.hostname.includes(".") || parsed.username || parsed.password) return "";
+    if (parsed.hostname === "localhost" || parsed.hostname.endsWith(".local")) return "";
+    return parsed.href;
+  } catch (_) { return ""; }
+}
+async function sendVerificationUpdate(deps, env, application, decision, reason) {
+  const typeLabel = verificationTypeLabel(application.type);
+  const name = String(application.owner_name || "Usuario").slice(0, 80);
+  const approved = decision === "approved";
+  const rejected = decision === "rejected";
+  const heading = approved ? "¡Felicidades! Tu verificación fue aprobada" : rejected ? "Tu solicitud fue rechazada" : "Tu insignia de verificación fue retirada";
+  const subject = approved ? "🎉 ¡Tu insignia de OceanHub fue aprobada!" : rejected ? "Actualización de tu solicitud de OceanHub Verified" : "Aviso sobre tu insignia de OceanHub";
+  const detail = approved
+    ? "OceanHub Staff confirmó tu insignia de " + typeLabel + ". Ya puedes mostrarla junto a tu nombre."
+    : rejected
+      ? "OceanHub Staff no pudo aprobar tu solicitud de " + typeLabel + "."
+      : "OceanHub Staff retiró la insignia asociada a tu cuenta.";
+  const badgeHtml = approved ? renderVerifiedBadge({ active: true, type: application.type }) : "";
+  const note = reason ? '<p><strong>Nota del equipo:</strong> ' + esc(reason) + '</p>' : "";
+  const html = '<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;padding:26px;background:#07182b;color:#eaf6ff;border-radius:18px"><h2 style="color:#5bd8ff">🌊 OceanHub Verified</h2><h1>' + esc(heading) + '</h1><p>Hola <strong>' + esc(name) + '</strong>:</p><p>' + esc(detail) + '</p><p>' + badgeHtml + '</p>' + note + '<p style="color:#9ab4ce">Consulta el estado desde tu perfil de OceanHub.</p></div>';
+  let accepted = false;
+  try { if (typeof deps.sendEmail === "function") accepted = (await deps.sendEmail(env, application.owner_email, subject, html)) === true; } catch (_) {}
+  await notify(deps, env, application.owner_email, {
+    type: "verification_result", title: heading,
+    body: reason ? detail + " Motivo: " + reason : detail,
+    href: "/ocean/verified"
+  });
+  return accepted;
+}
+async function submitVerificationApplication(env, auth, deps, form) {
+  const email = String(auth.user.email || "").trim().toLowerCase();
+  const type = String(form.get("type") || "");
+  const proofUrl = validPublicProofUrl(form.get("proof_url"));
+  const statement = String(form.get("statement") || "").trim().slice(0, 600);
+  const companyName = String(form.get("company_name") || "").trim().slice(0, 100);
+  const affiliationRole = String(form.get("affiliation_role") || "").trim().slice(0, 80);
+  if (!["public_figure", "company_affiliation"].includes(type)) return { error: "Selecciona una de las dos insignias disponibles.", status: 400 };
+  if (!proofUrl) return { error: "Añade un enlace público seguro que empiece por https://.", status: 400 };
+  if (statement.length < 20) return { error: "Explica tu solicitud con al menos 20 caracteres.", status: 400 };
+  if (type === "company_affiliation" && (companyName.length < 2 || affiliationRole.length < 2)) return { error: "Para la insignia amarilla indica la empresa y tu relación con ella.", status: 400 };
+  if (!(await allowAction(deps, env, "verification-submit", email, 2, 86400))) return { error: "Has alcanzado el límite de solicitudes. Inténtalo más tarde.", status: 429 };
+  const hash = await accountKey(email);
+  if (await getVerifiedBadge(env, email)) return { error: "Tu cuenta ya tiene una insignia activa. Contacta con Staff si necesitas corregirla.", status: 409 };
+  const id = makeId();
+  const appKey = "oh_suite_verification_app_" + id;
+  const application = {
+    id, owner_hash: hash, owner_email: email,
+    owner_name: String(auth.user.name || auth.user.username || email.split("@")[0]).slice(0, 80),
+    type, company_name: type === "company_affiliation" ? companyName : "",
+    affiliation_role: type === "company_affiliation" ? affiliationRole : "",
+    proof_url: proofUrl, statement, status: "pending",
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+  };
+  const saved = await runLocked(deps, env, "verification-user:" + hash, async function () {
+    const oldKey = await getJson(env, "oh_suite_verification_user_" + hash, null);
+    const old = oldKey ? await getJson(env, oldKey, null) : null;
+    if (old && old.status === "pending") return false;
+    const index = await getJson(env, "oh_suite_verifications_index", []);
+    await putJson(env, appKey, application);
+    await putJson(env, "oh_suite_verification_user_" + hash, appKey);
+    await putJson(env, "oh_suite_verifications_index", [appKey].concat((Array.isArray(index) ? index : []).filter(key => key !== appKey)).slice(0, MAX_VERIFICATION_REQUESTS));
+    return true;
+  });
+  return saved ? { application } : { error: "Ya tienes una solicitud pendiente. Espera la decisión de OceanHub Staff.", status: 409 };
+}
+async function handleUserVerification(request, env, auth, deps) {
+  if (!(await isFeatureEnabled(env, "verification_system"))) return page("OceanHub Verified desactivado", "<p>Las solicitudes están temporalmente desactivadas.</p>");
+  if (request.method === "POST") {
+    let form;
+    try { form = await request.formData(); } catch (_) { return page("Solicitud inválida", '<div class="notice">No se pudo leer el formulario.</div>', { status: 400, back: "/ocean/verified" }); }
+    const result = await submitVerificationApplication(env, auth, deps, form);
+    if (result.error) return page("No se pudo enviar la solicitud", '<div class="notice">' + esc(result.error) + '</div><a class="btn" href="/ocean/verified">Volver a intentar</a>', { status: result.status, back: "/ocean" });
+    return redirect(request, "/ocean/verified?submitted=1");
+  }
+  if (request.method !== "GET") return json({ error: "Método no permitido" }, 405);
+  const email = String(auth.user.email || "").trim().toLowerCase();
+  const hash = await accountKey(email);
+  const badge = await getVerifiedBadge(env, email);
+  const appKey = await getJson(env, "oh_suite_verification_user_" + hash, null);
+  const app = appKey ? await getJson(env, appKey, null) : null;
+  let statusHtml = '<section class="card"><h2>¿Quieres verificar tu cuenta?</h2><p>Elige una insignia y envía un enlace público con información que permita revisar tu solicitud.</p></section>';
+  let canApply = true;
+  if (badge) {
+    canApply = false;
+    statusHtml = '<section class="card"><div class="row"><h2>Tu cuenta está verificada</h2>' + renderVerifiedBadge(badge) + '</div><p><strong>' + esc(verificationTypeLabel(badge.type)) + '</strong>' + (badge.company_name ? ' · ' + esc(badge.company_name) : '') + '</p><p class="muted">Verificada el ' + esc(new Date(badge.verified_at).toLocaleString("es-DO")) + '.</p></section>';
+  } else if (app && app.status === "pending") {
+    canApply = false;
+    statusHtml = '<section class="card"><div class="row"><h2>Solicitud pendiente</h2><span class="pill">En revisión</span></div><p>Tu solicitud de <strong>' + esc(verificationTypeLabel(app.type)) + '</strong> está en la cola de OceanHub Staff. Te enviaremos un correo cuando haya una decisión.</p><p class="muted">Enviada el ' + esc(new Date(app.created_at).toLocaleString("es-DO")) + '.</p></section>';
+  } else if (app && (app.status === "rejected" || app.status === "revoked")) {
+    const wasRevoked = app.status === "revoked";
+    statusHtml = '<section class="card"><div class="row"><h2>' + (wasRevoked ? "Insignia retirada" : "Solicitud anterior rechazada") + '</h2><span class="pill">' + (wasRevoked ? "Retirada" : "Rechazada") + '</span></div><p>' + esc(app.review_note || "Consulta los requisitos antes de volver a solicitar.") + '</p><p class="muted">Puedes presentar una nueva solicitud cuando tengas información pública adicional.</p></section>';
+  }
+  const formHtml = canApply ? '<section class="card"><h2>Nueva solicitud</h2><form method="post" action="/ocean/verified"><label>Tipo de insignia</label><select name="type" required><option value="public_figure">🔵 Azul · Figura pública</option><option value="company_affiliation">🟡 Amarilla · Empresa o afiliado</option></select><label>Enlace público de tu perfil, sitio o presencia oficial (HTTPS)</label><input type="url" name="proof_url" maxlength="500" placeholder="https://..." required><label>Empresa</label><input name="company_name" maxlength="100" placeholder="Nombre de la empresa (solo insignia amarilla)"><label>Tu relación con la empresa</label><input name="affiliation_role" maxlength="80" placeholder="Ej. fundador, empleado, representante"><label>¿Por qué corresponde esta verificación?</label><textarea name="statement" minlength="20" maxlength="600" required placeholder="Describe tu presencia pública o tu vínculo con la empresa."></textarea><p class="muted">Comparte solo enlaces e información pública. No envíes documentos de identidad, contraseñas, direcciones privadas ni datos financieros.</p><button type="submit">Enviar solicitud a revisión</button></form></section>' : "";
+  return page("OceanHub Verified", '<p>Una insignia auténtica, concedida por OceanHub Staff después de revisar cada solicitud.</p>' + statusHtml + formHtml);
+}
+async function handleAdminVerifications(request, env, admin, deps, url) {
+  if (!(await isFeatureEnabled(env, "verification_system"))) return page("OceanHub Verified desactivado", "<p>El sistema está desactivado desde Feature Control.</p>", { admin: true });
+  if (url.pathname === "/admin/ocean-verifications" && request.method === "GET") {
+    const apps = await listIndexed(env, "oh_suite_verifications_index", MAX_VERIFICATION_REQUESTS);
+    apps.sort((a,b) => (b.status === "pending") - (a.status === "pending") || String(b.created_at).localeCompare(String(a.created_at)));
+    const cards = [];
+    for (const app of apps) {
+      const badge = await getVerifiedBadge(env, app.owner_email);
+      const proof = validPublicProofUrl(app.proof_url);
+      const details = '<p class="muted">' + esc(app.owner_email) + ' · ' + esc(new Date(app.created_at).toLocaleString("es-DO")) + '</p><p><strong>Tipo:</strong> ' + esc(verificationTypeLabel(app.type)) + (app.company_name ? ' · <strong>Empresa:</strong> ' + esc(app.company_name) : '') + (app.affiliation_role ? ' · <strong>Relación:</strong> ' + esc(app.affiliation_role) : '') + '</p><p><strong>Enlace:</strong> ' + (proof ? '<a href="' + esc(proof) + '" target="_blank" rel="noopener noreferrer">Abrir evidencia pública ↗</a>' : "No disponible") + '</p><p>' + esc(app.statement) + '</p>';
+      let controls = "";
+      if (app.status === "pending") controls = '<form method="post" action="/admin/ocean-verifications/' + esc(app.id) + '"><label>Decisión</label><select name="decision" required><option value="">Selecciona…</option><option value="approve">Aprobar</option><option value="reject">Rechazar</option></select><label>Nota (obligatoria al rechazar)</label><textarea name="reason" maxlength="400" placeholder="Explica brevemente la decisión."></textarea><button type="submit">Guardar decisión</button></form>';
+      else if (app.status === "approved" && badge) controls = '<form method="post" action="/admin/ocean-verifications/' + esc(app.id) + '"><input type="hidden" name="decision" value="revoke"><label>Motivo para retirar la insignia</label><textarea name="reason" maxlength="400" minlength="6" required></textarea><button type="submit">Retirar insignia</button></form>';
+      cards.push('<section class="card"><div class="row"><h2>' + esc(app.owner_name) + renderVerifiedBadge(badge) + '</h2><span class="pill">' + esc(app.status) + '</span></div>' + details + controls + '</section>');
+    }
+    return page("OceanHub Verification Center", '<p>Revisa las solicitudes azules y amarillas. Solo las decisiones de Staff cambian el estado visible de una cuenta.</p>' + (cards.join("") || '<section class="card"><p>No hay solicitudes todavía.</p></section>'), { admin: true });
+  }
+  const match = url.pathname.match(/^\/admin\/ocean-verifications\/([a-f0-9]{32})$/);
+  if (!match || request.method !== "POST") return json({ error: "Ruta o método no permitido" }, 405);
+  let form;
+  try { form = await request.formData(); } catch (_) { return json({ error: "Formulario inválido" }, 400); }
+  const decision = String(form.get("decision") || "");
+  const reason = String(form.get("reason") || "").trim().slice(0, 400);
+  if (!["approve", "reject", "revoke"].includes(decision)) return json({ error: "Decisión no válida" }, 400);
+  if ((decision === "reject" || decision === "revoke") && reason.length < 6) return page("Falta el motivo", '<div class="notice">Escribe un motivo de al menos 6 caracteres para rechazar o retirar.</div><a class="btn" href="/admin/ocean-verifications">Volver</a>', { status: 400, admin: true });
+  const key = "oh_suite_verification_app_" + match[1];
+  const result = await runLocked(deps, env, "verification-review:" + match[1], async function () {
+    const app = await getJson(env, key, null);
+    if (!app) return { error: "Solicitud no encontrada", status: 404 };
+    const hash = app.owner_hash;
+    if (decision === "approve" || decision === "reject") {
+      if (app.status !== "pending") return { error: "Esta solicitud ya fue revisada", status: 409 };
+      if (decision === "approve") {
+        const old = await getJson(env, "oh_suite_verified_" + hash, null);
+        if (old && old.active === true) return { error: "La cuenta ya tiene una insignia activa", status: 409 };
+        await putJson(env, "oh_suite_verified_" + hash, {
+          active: true, type: app.type, company_name: app.company_name || "",
+          affiliation_role: app.affiliation_role || "", verified_at: new Date().toISOString(),
+          verified_by: String(admin.user.email || "").slice(0, 160)
+        });
+        app.status = "approved";
+      } else app.status = "rejected";
+    } else {
+      if (app.status !== "approved") return { error: "Solo se puede retirar una insignia concedida", status: 409 };
+      const badge = await getJson(env, "oh_suite_verified_" + hash, null);
+      if (!badge || badge.active !== true) return { error: "La insignia ya no está activa", status: 409 };
+      badge.active = false;
+      badge.revoked_at = new Date().toISOString();
+      badge.revoked_by = String(admin.user.email || "").slice(0, 160);
+      await putJson(env, "oh_suite_verified_" + hash, badge);
+      app.status = "revoked";
+    }
+    app.review_note = reason;
+    app.reviewed_by = String(admin.user.email || "").slice(0, 160);
+    app.reviewed_at = new Date().toISOString();
+    await putJson(env, key, app);
+    return { application: app };
+  });
+  if (result.error) return json({ error: result.error }, result.status);
+  const accepted = await sendVerificationUpdate(deps, env, result.application, result.application.status, reason);
+  const emailText = accepted ? "Brevo aceptó el correo." : "No se pudo confirmar el envío; revisa BREVO_API_KEY y SENDER_EMAIL.";
+  const action = result.application.status === "approved" ? "Insignia concedida" : result.application.status === "rejected" ? "Solicitud rechazada" : "Insignia retirada";
+  return page("Verificación actualizada", '<section class="card"><h2>' + esc(action) + '</h2><p>' + esc(result.application.owner_name) + ' · ' + esc(emailText) + '</p><a class="btn" href="/admin/ocean-verifications">Volver al Verification Center</a></section>', { admin: true });
 }
 
 async function listUserTickets(env, email) {
@@ -434,9 +621,10 @@ async function handleOceanHome(env, auth) {
     flags.launcher ? linkCard("Launcher", "Descubre proyectos y herramientas de la comunidad.", "/ocean/launcher") : "",
     flags.developer_hub ? linkCard("Developer Hub", "Documentación y buenas prácticas.", "/ocean/developers") : "",
     flags.air_flow_workspace ? linkCard("Air Flow Workspace", "Abre el asistente y gestiona tus borradores.", "/ocean/air-flow") : "",
+    flags.verification_system ? linkCard("OceanHub Verified", "Solicita tu insignia azul o amarilla y consulta el estado de revisión.", "/ocean/verified") : "",
     linkCard("Estado de OceanHub", "Consulta el estado público del servicio.", "/status")
   ].filter(Boolean).join("");
-  const staff = auth.user.role === "admin" ? '<section class="card"><h2>OceanHub Staff</h2><p>Centro de operaciones y controles administrativos.</p><div class="actions"><a class="btn" href="/admin/ocean-command">Command Center</a><a class="btn" href="/admin/ocean-features">Feature Control</a><a class="btn" href="/admin/ocean-support">Support Desk</a><a class="btn" href="/admin/ocean-market">Marketplace</a></div></section>' : "";
+  const staff = auth.user.role === "admin" ? '<section class="card"><h2>OceanHub Staff</h2><p>Centro de operaciones y controles administrativos.</p><div class="actions"><a class="btn" href="/admin/ocean-command">Command Center</a><a class="btn" href="/admin/ocean-features">Feature Control</a><a class="btn" href="/admin/ocean-support">Support Desk</a><a class="btn" href="/admin/ocean-market">Marketplace</a><a class="btn" href="/admin/ocean-verifications">Verifications</a></div></section>' : "";
   return page("OceanHub Suite", '<p>Un solo punto de entrada a las herramientas de la comunidad, vendedores, creadores y administración.</p><div class="grid">' + sections + '</div>' + staff);
 }
 
@@ -487,6 +675,13 @@ export async function handleOceanSuiteRoute(request, env, deps) {
   if (path === "/ocean/security" || path === "/ocean/security/revoke-others") return handleSecurity(request, env, auth, deps, url);
   if (path === "/ocean/support" || /^\/ocean\/support\/[a-f0-9]{32}\/reply$/.test(path)) return handleSupport(request, env, auth, deps, url);
   if (path === "/ocean/market") return handleMarket(request, env, auth, deps, url);
+
+  if (path === "/ocean/verified") return handleUserVerification(request, env, auth, deps);
+  if (path === "/admin/ocean-verifications" || path.startsWith("/admin/ocean-verifications/")) {
+    const admin = await deps.requireAdmin(env, request);
+    if (!admin) return json({ error: "No autorizado" }, 403);
+    return handleAdminVerifications(request, env, admin, deps, url);
+  }
 
   if (path.startsWith("/admin/ocean-")) {
     const admin = await deps.requireAdmin(env, request);
