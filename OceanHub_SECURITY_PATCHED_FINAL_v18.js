@@ -7728,19 +7728,20 @@ async function handleAdminUsers(env, url, request) {
     if (!auth) return new Response('No autorizado', { status: 403 });
 
     const users = await getAllUsers(env);
+    const roleLabels = { admin: 'OceanHub Staff · Admin', reseller: 'OceanHub Sellers · Vendedor', user: 'Usuario' };
     let rows = users.map(u => `
         <tr>
             <td>${escapeHTML(u.email)}</td>
             <td>${escapeHTML(u.name || '')}</td>
-            <td>${escapeHTML(u.role)}</td>
+            <td>${escapeHTML(roleLabels[u.role] || u.role)}</td>
             <td>${new Date(u.created_at).toLocaleDateString()}</td>
             <td>${u.last_login ? new Date(u.last_login).toLocaleString() : 'Nunca'}</td>
             <td>${u.points || 0}</td>
             <td>
                 <select onchange="cambiarRol(${escapeJSAttribute(u.email)}, this.value)">
-                    <option value="user" ${u.role==='user'?'selected':''}>User</option>
-                    <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-                    <option value="reseller" ${u.role==='reseller'?'selected':''}>Reseller</option>
+                    <option value="user" ${u.role==='user'?'selected':''}>Usuario</option>
+                    <option value="admin" ${u.role==='admin'?'selected':''}>OceanHub Staff · Admin</option>
+                    <option value="reseller" ${u.role==='reseller'?'selected':''}>OceanHub Sellers · Vendedor</option>
                 </select>
                 <button onclick="eliminarUsuario(${escapeJSAttribute(u.email)})">🗑️</button>
             </td>
@@ -7819,11 +7820,21 @@ async function handleAdminUserAction(env, request) {
     if (!user) return jsonResponse({ error: 'Usuario no encontrado' }, 404);
 
     if (action === 'role') {
-        if (!role) return jsonResponse({ error: 'Falta rol' }, 400);
+        if (!['user', 'admin', 'reseller'].includes(role)) return jsonResponse({ error: 'Rol no válido' }, 400);
+        if (role === 'reseller' && user.role === 'admin') return jsonResponse({ error: 'Las cuentas de OceanHub Staff no pueden convertirse en vendedores.' }, 409);
         user.role = role;
         await env.STATS.put(`user_${email}`, JSON.stringify(user));
+        if (role === 'reseller') {
+            let reseller = await getReseller(env, email);
+            if (!reseller) reseller = {
+                email, role: 'reseller', saldo: 0, comision_porcentaje: 25,
+                claves_asignadas: [], claves_vendidas: [], total_vendido: 0,
+                total_comisiones: 0, created_at: new Date().toISOString()
+            };
+            await ensureOceanSellerIdentity(env, email, reseller, user);
+        }
         await logAdminAction(env, 'change_role', email, getClientIP(request), { newRole: role });
-        return jsonResponse({ message: `Rol de ${email} actualizado a ${role}` });
+        return jsonResponse({ message: `Rol de ${email} actualizado a ${role === 'admin' ? 'OceanHub Staff' : role === 'reseller' ? 'OceanHub Sellers' : 'Usuario'}` });
     } else if (action === 'delete') {
         await env.STATS.delete(`user_${email}`);
         await logAdminAction(env, 'delete_user', email, getClientIP(request), {});
