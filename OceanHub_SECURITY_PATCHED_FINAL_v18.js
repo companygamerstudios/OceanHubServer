@@ -9260,7 +9260,8 @@ async function handlePublicProfile(env, request, usernameParam) {
             else if (fr.incoming.includes(u.email.toLowerCase())) relation = 'incoming';
         }
     }
-    const badge = pub.verified ? '<span title="Verificado" style="color:#1da1f2;font-size:22px;vertical-align:middle">✔</span>' : '';
+    const verifiedBadge = await getVerifiedBadge(env, u.email);
+    const badge = renderVerifiedBadge(verifiedBadge) || (pub.verified ? '<span title="Verificado" style="color:#1da1f2;font-size:22px;vertical-align:middle">✔</span>' : '');
     const adminBadge = pub.role === 'admin' ? '<span style="background:#ffb020;color:#1a1000;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px">ADMIN</span>' : '';
     let actions = '';
     if (relation === 'self') {
