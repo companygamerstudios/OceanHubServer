@@ -922,38 +922,6 @@ export async function setReseller(env, email, data) {
     await env.STATS.put(`reseller_${email}`, JSON.stringify(stored));
 }
 
-const OCEAN_SELLER_RANKS = Object.freeze([
-    { min: 0, name: 'Starter', title: 'Ocean Starter' },
-    { min: 5, name: 'Growth', title: 'Ocean Growth' },
-    { min: 20, name: 'Pro', title: 'Ocean Pro' },
-    { min: 50, name: 'Elite', title: 'Ocean Elite' },
-    { min: 100, name: 'Legend', title: 'Ocean Legend' }
-]);
-function getOceanSellerRank(reseller) {
-    const sold = Array.isArray(reseller?.claves_vendidas) ? reseller.claves_vendidas.length : 0;
-    let current = OCEAN_SELLER_RANKS[0];
-    for (const rank of OCEAN_SELLER_RANKS) if (sold >= rank.min) current = rank;
-    const next = OCEAN_SELLER_RANKS.find(rank => rank.min > sold) || null;
-    const progress = next ? Math.max(0, Math.min(100, Math.round(((sold-current.min)/(next.min-current.min))*100))) : 100;
-    return { name: current.name, title: current.title, sold, next: next ? next.min : null, remaining: next ? next.min-sold : 0, progress };
-}
-async function ensureOceanSellerIdentity(env, email, reseller, knownUser = null) {
-    if (!reseller) return { reseller: null, user: knownUser };
-    const user = knownUser || await getUserByEmail(env, email);
-    const profile = user ? await socialEnsureUserMeta(env, user) : null;
-    let changed = false;
-    if (reseller.role !== 'reseller') { reseller.role = 'reseller'; changed = true; }
-    if (!reseller.seller_id) { reseller.seller_id = 'OH-' + generateRandomHex(16).slice(0, 8).toUpperCase(); changed = true; }
-    if (profile?.username && reseller.username !== profile.username) { reseller.username = profile.username; changed = true; }
-    if (!Array.isArray(reseller.claves_asignadas)) { reseller.claves_asignadas = []; changed = true; }
-    if (!Array.isArray(reseller.claves_vendidas)) { reseller.claves_vendidas = []; changed = true; }
-    if (typeof reseller.saldo !== 'number' || !Number.isFinite(reseller.saldo)) { reseller.saldo = 0; changed = true; }
-    if (typeof reseller.total_comisiones !== 'number' || !Number.isFinite(reseller.total_comisiones)) { reseller.total_comisiones = 0; changed = true; }
-    if (typeof reseller.comision_porcentaje !== 'number' || !Number.isFinite(reseller.comision_porcentaje)) { reseller.comision_porcentaje = 25; changed = true; }
-    if (changed) await setReseller(env, email, reseller);
-    return { reseller, user: profile || user };
-}
-
 async function registrarMovimiento(env, email, tipo, cantidad, descripcion) {
     const id = `movimiento_${Date.now()}_${generateRandomHex(3)}`;
     const entry = { email, tipo, cantidad, descripcion, fecha: new Date().toISOString() };
@@ -6088,8 +6056,8 @@ async function handleSell(env, request) {
     }
 
     const user = auth.user;
-    const resellerRecord = await getReseller(env, user.email);
-    if (user.role !== 'reseller' || !resellerRecord || resellerRecord.role !== 'reseller') {
+    const reseller = await getReseller(env, user.email);
+    if (!reseller || reseller.role !== 'reseller') {
         return new Response(`
             <html><body style="background:#0a1a2b;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:monospace;">
                 <div style="text-align:center;">
@@ -6101,16 +6069,6 @@ async function handleSell(env, request) {
         `, { status: 403, headers: { 'Content-Type': 'text/html' } });
     }
 
-    const sellerIdentity = await ensureOceanSellerIdentity(env, user.email, resellerRecord, user);
-    const reseller = sellerIdentity.reseller;
-    const sellerUser = sellerIdentity.user || user;
-    const sellerRank = getOceanSellerRank(reseller);
-    const sellerUsername = String(sellerUser.username || 'seller').slice(0,40);
-    const sellerProfilePath = '/Profile/' + encodeURIComponent(sellerUsername);
-    const sellerVerified = sellerUser.verified === true;
-    const rankProgressText = sellerRank.next
-        ? `Te faltan ${sellerRank.remaining} claves registradas para ${OCEAN_SELLER_RANKS.find(rank => rank.min === sellerRank.next)?.title || 'el siguiente rango'}.`
-        : 'Has alcanzado el rango máximo de vendedor.';
     const { movimientos } = await getMovimientos(env, user.email, 20, 0);
     const clavesDisponibles = reseller.claves_asignadas.filter(k => !reseller.claves_vendidas.includes(k));
     const clavesVendidas = reseller.claves_vendidas;
@@ -6166,30 +6124,11 @@ async function handleSell(env, request) {
         .clave-item { font-family: monospace; background: #112233; padding: 4px 12px; border-radius: 6px; display: inline-block; }
         .badge { background: rgba(0,200,255,0.2); padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; }
         .chart-container { background: rgba(255,255,255,0.04); border-radius: 20px; padding: 20px; margin: 20px 0; }
-        .seller-identity{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(220px,1fr);gap:18px;align-items:center;background:linear-gradient(135deg,rgba(10,105,170,.26),rgba(9,25,42,.92));border:1px solid rgba(0,204,255,.28);border-radius:18px;padding:20px}
-        .seller-kicker{color:#63dfff;letter-spacing:.18em;font-size:11px;font-weight:700}.seller-identity h2{font-size:clamp(22px,3vw,30px);margin:5px 0;overflow-wrap:anywhere}
-        .seller-meta{color:#9bbbd5;font-size:12px;overflow-wrap:anywhere}.seller-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
-        .seller-rank{border:1px solid rgba(0,204,255,.22);background:rgba(0,0,0,.16);border-radius:14px;padding:15px}.seller-rank strong{display:block;font-size:20px;color:#ffd166;margin:4px 0}
-        .seller-progress{height:8px;margin:10px 0 7px;background:rgba(255,255,255,.12);border-radius:99px;overflow:hidden}.seller-progress span{display:block;height:100%;background:linear-gradient(90deg,#00ccff,#5cf0c0);border-radius:99px}
-        .seller-verified{display:inline-flex;gap:5px;color:#8edcff;border:1px solid rgba(80,190,255,.4);padding:3px 8px;border-radius:99px;font-size:11px;vertical-align:middle}
-        @media(max-width:700px){.seller-identity{grid-template-columns:1fr}.seller-actions .btn{flex:1}}
     </style>
     </head>
     <body>
     <div class="container">
-        <h1>💰 OceanHub Sellers</h1>
-        <section class="seller-identity" aria-label="Identidad de vendedor">
-            <div><div class="seller-kicker">OCEANHUB SELLERS</div>
-                <h2>@${escapeHTML(sellerUsername)} ${sellerVerified ? '<span class="seller-verified">✔ Ocean Verified</span>' : ''}</h2>
-                <div class="seller-meta">Vendedor oficial · ID: <strong>${escapeHTML(reseller.seller_id || '—')}</strong></div>
-                <div class="seller-actions"><button class="btn btn-primary" type="button" id="copySellerId">Copiar ID</button><button class="btn btn-primary" type="button" id="copySellerUsername">Copiar usuario</button><a class="btn" href="${escapeHTML(sellerProfilePath)}">Ver perfil público</a></div>
-            </div>
-            <div class="seller-rank"><div class="seller-kicker">RANGO DE VENDEDOR</div><strong>${escapeHTML(sellerRank.title)}</strong>
-                <div class="seller-meta">${sellerRank.sold} claves registradas como vendidas</div>
-                <div class="seller-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${sellerRank.progress}"><span style="width:${sellerRank.progress}%"></span></div>
-                <div class="seller-meta">${escapeHTML(rankProgressText)}</div>
-            </div>
-        </section>
+        <h1>💰 Panel de Revendedor</h1>
         <div class="stats-grid">
             <div class="stat-card"><div class="number">$${reseller.saldo.toFixed(2)}</div><div class="label">Saldo disponible</div></div>
             <div class="stat-card"><div class="number">$${reseller.total_comisiones.toFixed(2)}</div><div class="label">Total ganado</div></div>
@@ -6278,14 +6217,6 @@ async function handleSell(env, request) {
         <a href="/home" class="back">← Volver al inicio</a>
     </div>
     <script>
-        const oceanSellerId = ${JSON.stringify(reseller.seller_id || '')};
-        const oceanSellerUsername = ${JSON.stringify('@' + sellerUsername)};
-        async function copySellerValue(value) {
-            try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(value); alert('Copiado al portapapeles.'); } else prompt('Copia este dato:', value); }
-            catch (_) { prompt('Copia este dato:', value); }
-        }
-        document.getElementById('copySellerId')?.addEventListener('click', () => copySellerValue(oceanSellerId));
-        document.getElementById('copySellerUsername')?.addEventListener('click', () => copySellerValue(oceanSellerUsername));
         function copiarClave(clave) {
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(clave)
@@ -6373,18 +6304,24 @@ async function handleHacerReseller(env, request) {
 
     const user = await getUserByEmail(env, email);
     if (!user) return jsonResponse({ error: 'Usuario no encontrado' }, 404);
-    if (user.role === 'admin') return jsonResponse({ error: 'Las cuentas de OceanHub Staff no pueden convertirse en vendedores.' }, 409);
+
     let reseller = await getReseller(env, email);
-    const requestedPercent = porcentaje === undefined || porcentaje === null || porcentaje === '' ? Number(reseller?.comision_porcentaje ?? 25) : Number(porcentaje);
-    if (!Number.isFinite(requestedPercent) || requestedPercent < 0 || requestedPercent > 100) return jsonResponse({ error: 'La comisión debe estar entre 0 y 100.' }, 400);
     if (!reseller) {
-        reseller = { email, role: 'reseller', saldo: 0, comision_porcentaje: requestedPercent, claves_asignadas: [], claves_vendidas: [], total_vendido: 0, total_comisiones: 0, created_at: new Date().toISOString() };
-    } else reseller.comision_porcentaje = requestedPercent;
-    const identity = await ensureOceanSellerIdentity(env, email, reseller, user);
+        reseller = {
+            email, role: 'reseller', saldo: 0,
+            comision_porcentaje: porcentaje || 25,
+            claves_asignadas: [], claves_vendidas: [],
+            total_vendido: 0, total_comisiones: 0,
+            created_at: new Date().toISOString()
+        };
+    } else {
+        reseller.comision_porcentaje = porcentaje || reseller.comision_porcentaje;
+    }
+    await setReseller(env, email, reseller);
     user.role = 'reseller';
     await env.STATS.put(`user_${email}`, JSON.stringify(user));
-    await logAdminAction(env, 'hacer_reseller', email, getClientIP(request), { porcentaje: requestedPercent, seller_id: identity.reseller.seller_id });
-    return jsonResponse({ message: `@${identity.user?.username || email} ahora es Ocean Seller con ID ${identity.reseller.seller_id} y ${identity.reseller.comision_porcentaje}% de comisión` });
+    await logAdminAction(env, 'hacer_reseller', email, getClientIP(request), { porcentaje });
+    return jsonResponse({ message: `Usuario ${email} ahora es revendedor con ${reseller.comision_porcentaje}% de comisión` });
 }
 
 async function handleAsignarClaves(env, request) {
@@ -6433,52 +6370,6 @@ async function handleListResellers(env, request) {
         cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor);
     return jsonResponse({ resellers });
-}
-
-async function handleListSellerSummaries(env, request) {
-    const auth = await requireAdmin(env, request);
-    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
-    const sellers = []; let cursor;
-    do {
-        const page = await env.STATS.list({ prefix: 'reseller_', limit: 1000, cursor });
-        for (const key of page.keys) {
-            const email = key.name.slice('reseller_'.length);
-            const user = await getUserByEmail(env, email);
-            if (!user || user.role !== 'reseller') continue;
-            const reseller = await getReseller(env, email);
-            if (!reseller || reseller.role !== 'reseller') continue;
-            const identity = await ensureOceanSellerIdentity(env, email, reseller, user);
-            const rank = getOceanSellerRank(identity.reseller);
-            sellers.push({
-                seller_id: identity.reseller.seller_id,
-                username: String(identity.user?.username || identity.reseller.username || 'seller').slice(0,40),
-                display_name: String(identity.user?.name || '').slice(0,80),
-                rank: rank.title, sold: rank.sold,
-                available: identity.reseller.claves_asignadas.filter(k => !identity.reseller.claves_vendidas.includes(k)).length,
-                commission_percent: Number(identity.reseller.comision_porcentaje || 0),
-                balance: Number(identity.reseller.saldo || 0),
-                verified: identity.user?.verified === true
-            });
-        }
-        cursor = page.list_complete ? undefined : page.cursor;
-    } while (cursor);
-    sellers.sort((a,b) => b.sold-a.sold || a.username.localeCompare(b.username));
-    return jsonResponse({ sellers, total: sellers.length });
-}
-
-async function handleAdminSellersPage(env, request) {
-    const auth = await requireAdmin(env, request);
-    if (!auth) return new Response('No autorizado', { status: 403 });
-    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>OceanHub Sellers · Administración</title>
-<style>:root{color-scheme:dark;--bg:#06111f;--card:#0b1d30;--line:rgba(115,190,255,.2);--text:#eaf5ff;--muted:#91abc4}*{box-sizing:border-box}body{margin:0;padding:24px;background:radial-gradient(circle at 50% -15%,rgba(0,150,255,.2),transparent 45%),var(--bg);color:var(--text);font:14px/1.5 Inter,system-ui,sans-serif}main{max-width:1180px;margin:auto}.top{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}h1{margin:0;font-size:clamp(26px,4vw,38px)}p{color:var(--muted)}a{color:#78d9ff;text-decoration:none}.actions{display:flex;gap:9px;flex-wrap:wrap}.btn{display:inline-flex;padding:9px 13px;border:1px solid var(--line);border-radius:10px;background:rgba(30,150,240,.12);color:var(--text)}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:22px 0}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:17px}.num{font-size:27px;font-weight:750;color:#69d6ff}.muted{color:var(--muted);font-size:12px}.table-wrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:16px}table{border-collapse:collapse;width:100%;min-width:760px}th,td{text-align:left;padding:13px;border-bottom:1px solid var(--line)}th{color:#79d9ff;font-size:12px;text-transform:uppercase;letter-spacing:.06em}tbody tr:last-child td{border:0}.rank{color:#ffd166;font-weight:700}.verified{color:#82d7ff;font-size:11px}.empty{padding:28px;text-align:center;color:var(--muted)}@media(max-width:600px){body{padding:15px}}</style></head><body><main>
-<div class="top"><div><div class="muted">OCEANHUB STAFF · CONTROL COMERCIAL</div><h1>👥 OceanHub Sellers</h1><p>Gestiona la identidad, los rangos y el estado comercial de los vendedores autorizados.</p></div><div class="actions"><a class="btn" href="/admin/users">👤 Usuarios y roles</a><a class="btn" href="/admin">← Panel admin</a></div></div>
-<section class="stats"><div class="card"><div class="num" id="sellerCount">—</div><div class="muted">Vendedores activos</div></div><div class="card"><div class="num" id="soldCount">—</div><div class="muted">Claves registradas como vendidas</div></div><div class="card"><div class="num" id="balanceTotal">—</div><div class="muted">Saldo conjunto disponible</div></div></section>
-<div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>ID OceanHub</th><th>Rango</th><th>Vendidas</th><th>Disponibles</th><th>Comisión</th><th>Saldo</th></tr></thead><tbody id="sellerRows"><tr><td colspan="7" class="empty">Cargando vendedores…</td></tr></tbody></table></div>
-<p class="muted">Los rangos se calculan con claves que el sistema tenga registradas como vendidas. Esta pantalla no muestra claves asignadas ni datos de pago.</p></main><script>
-function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}function usd(v){var n=Number(v);return '$'+(Number.isFinite(n)?n:0).toFixed(2)}
-fetch('/admin/resellers/summary',{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(async function(r){var d=await r.json().catch(function(){return{}});if(!r.ok)throw new Error(d.error||'No se pudo cargar la lista');return d}).then(function(d){var a=Array.isArray(d.sellers)?d.sellers:[];document.getElementById('sellerCount').textContent=a.length;document.getElementById('soldCount').textContent=a.reduce(function(n,s){return n+(Number(s.sold)||0)},0);document.getElementById('balanceTotal').textContent=usd(a.reduce(function(n,s){return n+(Number(s.balance)||0)},0));document.getElementById('sellerRows').innerHTML=a.length?a.map(function(s){return '<tr><td><strong>@'+esc(s.username)+'</strong>'+(s.verified?' <span class="verified">✔ Verified</span>':'')+(s.display_name?'<div class="muted">'+esc(s.display_name)+'</div>':'')+'</td><td>'+esc(s.seller_id)+'</td><td class="rank">'+esc(s.rank)+'</td><td>'+esc(s.sold)+'</td><td>'+esc(s.available)+'</td><td>'+esc(s.commission_percent)+'%</td><td>'+usd(s.balance)+'</td></tr>'}).join(''):'<tr><td colspan="7" class="empty">Todavía no hay vendedores activos.</td></tr>'}).catch(function(e){document.getElementById('sellerRows').innerHTML='<tr><td colspan="7" class="empty">Error: '+esc(e.message)+'</td></tr>'});
-</script></body></html>`;
-    return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 }
 
 async function handleComprarPack(env, request) {
@@ -7111,7 +7002,7 @@ async function handleAdminRoute(env, url, headers, request) {
         }
 
         
-        const resellerLink = `<a href="/admin/sellers" style="background:rgba(0,200,255,0.2);border:1px solid rgba(0,200,255,.45);">🌊 OceanHub Sellers</a>`;
+        const resellerLink = `<a href="/admin/resellers" style="background:rgba(255,200,0,0.2);">👥 Revendedores</a>`;
         const userManagerLink = `<a href="/admin/users" style="background:rgba(0,200,255,0.2);">👤 Usuarios</a>`;
         const verificationPanelLink = `<a href="/admin/social" style="background:rgba(29,161,242,0.24);border:1px solid rgba(29,161,242,.55);">✔️ Panel de verificación</a>`;
         const festivityPanelLink = '<a href="/admin/festividad" style="background:rgba(255,145,64,0.20);border:1px solid rgba(255,145,64,.5);">🎉 FESTIVIDAD</a>';
@@ -7728,20 +7619,19 @@ async function handleAdminUsers(env, url, request) {
     if (!auth) return new Response('No autorizado', { status: 403 });
 
     const users = await getAllUsers(env);
-    const roleLabels = { admin: 'OceanHub Staff · Admin', reseller: 'OceanHub Sellers · Vendedor', user: 'Usuario' };
     let rows = users.map(u => `
         <tr>
             <td>${escapeHTML(u.email)}</td>
             <td>${escapeHTML(u.name || '')}</td>
-            <td>${escapeHTML(roleLabels[u.role] || u.role)}</td>
+            <td>${escapeHTML(u.role)}</td>
             <td>${new Date(u.created_at).toLocaleDateString()}</td>
             <td>${u.last_login ? new Date(u.last_login).toLocaleString() : 'Nunca'}</td>
             <td>${u.points || 0}</td>
             <td>
                 <select onchange="cambiarRol(${escapeJSAttribute(u.email)}, this.value)">
-                    <option value="user" ${u.role==='user'?'selected':''}>Usuario</option>
-                    <option value="admin" ${u.role==='admin'?'selected':''}>OceanHub Staff · Admin</option>
-                    <option value="reseller" ${u.role==='reseller'?'selected':''}>OceanHub Sellers · Vendedor</option>
+                    <option value="user" ${u.role==='user'?'selected':''}>User</option>
+                    <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+                    <option value="reseller" ${u.role==='reseller'?'selected':''}>Reseller</option>
                 </select>
                 <button onclick="eliminarUsuario(${escapeJSAttribute(u.email)})">🗑️</button>
             </td>
@@ -7820,21 +7710,11 @@ async function handleAdminUserAction(env, request) {
     if (!user) return jsonResponse({ error: 'Usuario no encontrado' }, 404);
 
     if (action === 'role') {
-        if (!['user', 'admin', 'reseller'].includes(role)) return jsonResponse({ error: 'Rol no válido' }, 400);
-        if (role === 'reseller' && user.role === 'admin') return jsonResponse({ error: 'Las cuentas de OceanHub Staff no pueden convertirse en vendedores.' }, 409);
-        if (role === 'reseller') {
-            let reseller = await getReseller(env, email);
-            if (!reseller) reseller = {
-                email, role: 'reseller', saldo: 0, comision_porcentaje: 25,
-                claves_asignadas: [], claves_vendidas: [], total_vendido: 0,
-                total_comisiones: 0, created_at: new Date().toISOString()
-            };
-            await ensureOceanSellerIdentity(env, email, reseller, user);
-        }
+        if (!role) return jsonResponse({ error: 'Falta rol' }, 400);
         user.role = role;
         await env.STATS.put(`user_${email}`, JSON.stringify(user));
         await logAdminAction(env, 'change_role', email, getClientIP(request), { newRole: role });
-        return jsonResponse({ message: `Rol de ${email} actualizado a ${role === 'admin' ? 'OceanHub Staff' : role === 'reseller' ? 'OceanHub Sellers' : 'Usuario'}` });
+        return jsonResponse({ message: `Rol de ${email} actualizado a ${role}` });
     } else if (action === 'delete') {
         await env.STATS.delete(`user_${email}`);
         await logAdminAction(env, 'delete_user', email, getClientIP(request), {});
@@ -10732,8 +10612,6 @@ export async function workerFetch(request, env) {
         }
 
         // --- Resellers ---
-        if (path === '/admin/sellers') return await handleAdminSellersPage(env, request);
-        if (path === '/admin/resellers/summary') return await handleListSellerSummaries(env, request);
         if (path === '/admin/hacer-reseller') return await handleHacerReseller(env, request);
         if (path === '/admin/asignar-claves') return await handleAsignarClaves(env, request);
         if (path === '/admin/resellers') return await handleListResellers(env, request);

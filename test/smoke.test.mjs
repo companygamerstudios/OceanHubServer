@@ -212,31 +212,3 @@ test('Private Game Party invitations are rate-limited, bounded and limited to th
   assert.ok(source.includes('Solo el anfitrión puede invitar a una party activa.'));
   assert.ok(source.includes('Esta party es privada: necesitas una invitación del anfitrión.'));
 });
-
-
-test('OceanHub Sellers creates stable seller IDs, public usernames and graduated ranks', () => {
-  assert.match(source, /const OCEAN_SELLER_RANKS = Object\.freeze\(/);
-  assert.match(source, /async function ensureOceanSellerIdentity\(/);
-  assert.match(source, /function getOceanSellerRank\(reseller\)/);
-  for (const rank of ['Ocean Starter', 'Ocean Growth', 'Ocean Pro', 'Ocean Elite', 'Ocean Legend']) {
-    assert.ok(source.includes(rank), 'Missing seller rank: ' + rank);
-  }
-  assert.match(source, /seller_id = 'OH-' \+ generateRandomHex\(16\)\.slice\(0, 8\)/);
-});
-
-test('OceanHub Sellers has an admin-gated visual console and a safe summary route', () => {
-  assert.match(source, /async function handleAdminSellersPage\(env, request\)[\s\S]{0,180}requireAdmin\(env, request\)/);
-  assert.match(source, /async function handleListSellerSummaries\(env, request\)[\s\S]{0,180}requireAdmin\(env, request\)/);
-  assert.ok(source.includes("path === '/admin/sellers'"));
-  assert.ok(source.includes("path === '/admin/resellers/summary'"));
-  assert.ok(source.includes("href=\"/admin/sellers\""));
-  assert.ok(source.includes("fetch('/admin/resellers/summary'"));
-});
-
-test('OceanHub Staff and OceanHub Sellers remain separate account roles', () => {
-  assert.match(source, /user\.role === 'admin'\) return jsonResponse\(\{ error: 'Las cuentas de OceanHub Staff/);
-  assert.match(source, /requestedPercent < 0 \|\| requestedPercent > 100/);
-  assert.match(source, /if \(user\.role !== 'reseller' \|\| !resellerRecord/);
-  assert.ok(source.includes('OceanHub Staff · Admin'));
-  assert.ok(source.includes('OceanHub Sellers · Vendedor'));
-});
