@@ -1,4 +1,4 @@
-import { handleOceanSuiteRoute } from './ocean-suite.js';
+import { handleOceanSuiteRoute, getVerifiedBadge, renderVerifiedBadge } from './ocean-suite.js';
 
 // ==========================================================
 // 🌊 OCEAN HUB V29.1 — SOCIAL + editar perfil (bio/avatar) + notificaciones
@@ -3977,6 +3977,8 @@ async function handleProfile(env, request) {
     const referidos = await getReferidosDe(env, user.email);
     const comisiones = await getComisionesDe(env, user.email);
     const loginHistory = await getLoginHistory(env, user.email, 20);
+    const verifiedBadge = await getVerifiedBadge(env, user.email);
+    const verifiedBadgeHtml = renderVerifiedBadge(verifiedBadge);
 
     let suscripcionHtml = '<p>No tienes una suscripción activa.</p>';
     let diasRestantes = 0;
@@ -4220,7 +4222,7 @@ async function handleProfile(env, request) {
             </div>
             <div class="info">
                 <div class="info-item"><strong>Email:</strong> ${escapeHTML(user.email)}</div>
-                <div class="info-item"><strong>Nombre:</strong> ${escapeHTML(user.name || 'No especificado')}</div>
+                <div class="info-item"><strong>Nombre:</strong> ${escapeHTML(user.name || 'No especificado')} ${verifiedBadgeHtml}</div>
                 <div class="info-item"><strong>Rol:</strong> <span class="role-badge ${user.role === 'admin' ? 'admin' : ''}">${escapeHTML(user.role)}</span></div>
                 <div class="info-item"><strong>Miembro desde:</strong> ${new Date(user.created_at).toLocaleDateString()}</div>
                 <div class="info-item"><strong>2FA:</strong> ${user.otp_secret ? '✅ Activado' : '❌ Desactivado'} 
@@ -4257,6 +4259,7 @@ async function handleProfile(env, request) {
 
             <div style="margin-top:20px; display:flex; gap:15px; flex-wrap:wrap;">
                 <a href="/dlc" class="btn">Ver todos los DLCs</a>
+                <a href="/ocean/verified" class="btn">OceanHub Verified</a>
                 <a href="/home" class="btn">Volver al inicio</a>
                 <a href="/logout" class="btn btn-danger">Cerrar sesión</a>
             </div>
@@ -10595,6 +10598,7 @@ export async function workerFetch(request, env) {
                 communityXpState,
                 getStats,
                 socialPushNotif,
+                sendEmail,
                 revokeOtherSessions
             });
             if (oceanSuiteResponse) return oceanSuiteResponse;
