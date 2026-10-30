@@ -139,7 +139,7 @@ test('Community content indexes retain newly created records for feed, parties, 
 test('Friends presence uses a rate-limited heartbeat and respects invisible mode', () => {
   assert.ok(source.includes("path === '/friends/presence'"));
   assert.ok(source.includes('community-presence-heartbeat'));
-  assert.ok(source.includes("setInterval(function(){fetch('/friends/presence'"));
+  assert.ok(source.includes("function beat(){if(document.hidden)return;fetch('/friends/presence'"));
   assert.ok(source.includes("status.status === 'invisible'"));
 });
 
