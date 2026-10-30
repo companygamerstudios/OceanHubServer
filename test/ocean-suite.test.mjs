@@ -4,6 +4,7 @@ import { handleOceanSuiteRoute, oceanSuiteFeatures } from "../ocean-suite.js";
 import { readFile } from "node:fs/promises";
 
 const workerSource = await readFile(new URL("../OceanHub_SECURITY_PATCHED_FINAL_v18.js", import.meta.url), "utf8");
+const suiteSource = await readFile(new URL("../ocean-suite.js", import.meta.url), "utf8");
 
 class FakeKV {
   constructor() { this.values = new Map(); }
@@ -162,7 +163,10 @@ test("main Worker wires Ocean Suite behind the existing auth gates", () => {
 
 test("every new feature flag gates its module, including mutating routes", () => {
   for (const id of ["support_desk", "marketplace", "security_center", "reputation", "developer_hub", "launcher", "air_flow_workspace", "backup_center"]) {
-    assert.ok(workerSource.includes(id) || id === "backup_center");
+    assert.ok(suiteSource.includes(id), "Missing feature key: " + id);
   }
-  assert.match(workerSource, /Módulo desactivado/);
+  assert.match(suiteSource, /isFeatureEnabled\(env, "support_desk"\)/);
+  assert.match(suiteSource, /isFeatureEnabled\(env, "marketplace"\)/);
+  assert.match(suiteSource, /isFeatureEnabled\(env, "security_center"\)/);
+  assert.match(suiteSource, /isFeatureEnabled\(env, "backup_center"\)/);
 });
