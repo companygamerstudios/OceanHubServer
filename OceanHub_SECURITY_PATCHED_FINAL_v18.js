@@ -931,7 +931,7 @@ const OCEAN_SELLER_RANKS = Object.freeze([
     { min: 50, name: 'Elite', title: 'Ocean Elite' },
     { min: 100, name: 'Legend', title: 'Ocean Legend' }
 ]);
-function getOceanSellerRank(reseller) {
+export function getOceanSellerRank(reseller) {
     const sold = Array.isArray(reseller?.claves_vendidas) ? reseller.claves_vendidas.length : 0;
     let current = OCEAN_SELLER_RANKS[0];
     for (const rank of OCEAN_SELLER_RANKS) if (sold >= rank.min) current = rank;
@@ -1844,7 +1844,7 @@ async function getLoginHistory(env, email, limit = 20) {
         const raw = await env.STATS.get(idx[i]);
         if (!raw) continue;
         const entry = JSON.parse(raw);
-        if (entry.action === 'login' || entry.action === 'login_2fa' || entry.action === 'register' || entry.action === 'password_reset') {
+        if (entry.action === 'login' || entry.action === 'login_2fa' || entry.action === 'register' || entry.action === 'password_reset' || entry.action === 'close_other_sessions') {
             logins.push(entry);
         }
     }
@@ -10771,7 +10771,11 @@ export async function workerFetch(request, env) {
                 getStats,
                 socialPushNotif,
                 sendEmail,
-                revokeOtherSessions
+                revokeOtherSessions,
+                getLoginHistory,
+                logUserAction,
+                getReseller,
+                getOceanSellerRank
             });
             if (oceanSuiteResponse) return oceanSuiteResponse;
         }

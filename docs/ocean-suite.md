@@ -7,9 +7,10 @@ Esta entrega integra un punto de entrada y módulos complementarios sin reemplaz
 - **/ocean**: centro de acceso para usuarios.
 - **/admin/ocean-command**: Command Center (solo OceanHub Staff).
 - **/admin/ocean-features**: Feature Control (solo OceanHub Staff).
-- **/ocean/support** y **/admin/ocean-support**: tickets privados para usuarios y equipo.
-- **/ocean/market** y **/admin/ocean-market**: catálogo de vendedores con revisión administrativa.
-- **/ocean/security**: cerrar las demás sesiones conservando la sesión actual.
+- **/ocean/support** y **/admin/ocean-support**: centro de soporte con tickets privados, conversaciones en páginas separadas, prioridades y filtros para Staff.
+- **/ocean/market** y **/admin/ocean-market**: catálogo de vendedores con revisión administrativa; los nombres enlazan a perfiles comerciales públicos.
+- **/ocean/security**: estado de correo/2FA, actividad reciente de acceso sin mostrar IP ni tokens, y cierre de otras sesiones con límite de acciones.
+- **/ocean/sellers/:username**: perfil de reputación comercial con insignia oficial, rango registrado y publicaciones aprobadas; no calcula estrellas hasta vincular reseñas a compras completadas.
 - **/ocean/reputation**: XP y logros verificables.
 - **/ocean/developers**: guías de integración y seguridad.
 - **/ocean/launcher**: acceso a los proyectos ya publicados.
@@ -28,12 +29,12 @@ La barra lateral de Inicio contiene el enlace **Ocean Suite**.
 | Social avanzado | Se reutilizan Feed, Friends, Messages, Crews y perfiles existentes. |
 | Notificaciones | Se reutiliza /notifications y socialPushNotif; no se crea un inbox paralelo. |
 | Marketplace | Nuevo catálogo de publicaciones de vendedores, con aprobación/rechazo de Staff. |
-| Security Center | Nueva acción para invalidar las demás sesiones sin revelar tokens. |
-| Support Desk | Nuevos tickets privados, respuestas de usuario y respuestas administrativas. |
+| Security Center | Estado de correo/2FA, historial seguro de accesos y revocación limitada de otras sesiones. |
+| Support Desk | Tickets privados, conversaciones por ticket, prioridad automática de seguridad y filtros/gestión para Staff. |
 | Achievements | Nuevos logros derivados de XP real; no se inventan ventas ni victorias. |
 | Air Flow 2.0 | Nuevo Workspace que enlaza el motor y Studio existentes y muestra solo si cada proveedor está configurado. |
 | Events | Se reutilizan Ocean Events y Ocean Arena existentes. |
-| Reputation | Nuevo nivel transparente derivado de XP y rol; no se usa para sancionar. |
+| Reputation | XP y logros de comunidad más perfiles públicos de vendedor basados en insignias, rangos y publicaciones aprobadas. No muestra calificaciones sin compras vinculadas. |
 | Developer Hub | Nueva zona de documentación y buenas prácticas. |
 | Live Status | Se reutiliza /status; Ocean Suite lo enlaza. |
 | Launcher | Nuevo centro de accesos a Creator Studio, Arena, Parties, Events, Feed y Air Flow. |
@@ -64,3 +65,10 @@ La rama de trabajo no publica a producción. El Pull Request ejecuta los control
 - Las solicitudes antiguas se migran al nuevo centro cuando se abre la cola administrativa. Se conservan fecha, motivo y cuenta; se identifican como heredadas porque no incluyen enlace de evidencia.
 - `/admin/verification-audit` permanece como archivo histórico de decisiones antiguas; no permite revisar ni aprobar solicitudes.
 - Los menús del usuario y el panel administrativo enlazan a las rutas oficiales nuevas.
+
+
+## Entrega de las tres prioridades
+
+- Security Center reutiliza el registro de actividad ya guardado durante 30 días. La interfaz no muestra IP, cookies ni tokens; la acción de invalidar otras sesiones tiene límite de frecuencia y conserva la sesión actual.
+- Seller Reputation publica únicamente identidad de vendedor, insignia OceanHub Verified, rango calculado desde el registro existente y publicaciones que Staff aprobó. Las reseñas con estrellas se mantienen desactivadas mientras no exista una relación fiable entre pedido completado, comprador y vendedor.
+- Support Center conserva la privacidad por propietario, separa la lista de conversaciones del detalle de cada ticket, marca automáticamente los casos de seguridad con prioridad alta y permite a Staff filtrar, responder y cambiar estado/prioridad.
