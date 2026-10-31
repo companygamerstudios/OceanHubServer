@@ -1042,8 +1042,14 @@ async function withKVLock(env, name, fn, ttlMs = 60000) {
 
 // REQUIERE binding Durable Object: KV_LOCKER -> KVLocker en wrangler.toml.
 export class KVLocker {
-    constructor(state) { this.state = state; }
+    constructor(state) {
+        this.state = state;
+    }
+
     async fetch(request) {
+        const url = new URL(request.url);
+
+        if (url.pathname === '/realtime/presence/touch' && request.method === 'POST') {
 
         if (url.pathname === '/realtime/presence/touch' && request.method === 'POST') {
             let payload; try { payload = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
