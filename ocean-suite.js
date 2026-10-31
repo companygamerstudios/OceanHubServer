@@ -464,6 +464,7 @@ async function createTicket(env, auth, form, deps) {
     owner_name: String(auth.user.name || auth.user.username || email.split("@")[0]).slice(0, 80),
     subject: subject,
     category: category,
+    priority: category === "security" ? "high" : "normal",
     status: "open",
     created_at: now,
     updated_at: now,
@@ -485,30 +486,55 @@ async function addTicketReply(env, ticket, author, authorName, body) {
   return true;
 }
 
+function ticketStatusLabel(status) {
+  return ({ open: "Abierto", in_progress: "En revisión", closed: "Resuelto" })[status] || "Abierto";
+}
+function ticketPriorityLabel(priority) {
+  return ({ high: "Prioridad alta", normal: "Normal", low: "Baja" })[priority] || "Normal";
+}
+
 function renderTicket(ticket, options) {
   const opts = options || {};
-  const messages = (Array.isArray(ticket.messages) ? ticket.messages : []).map(function (message) {
+  const messagesArray = Array.isArray(ticket.messages) ? ticket.messages : [];
+  const messages = messagesArray.map(function (message) {
     return '<div class="item"><div class="row"><b>' + esc(message.author_name) + '</b><span class="muted">' + esc(new Date(message.created_at).toLocaleString("es-DO")) + '</span></div><p>' + esc(message.body).replace(/\n/g, "<br>") + '</p></div>';
   }).join("");
+  const lastMessage = messagesArray[messagesArray.length - 1];
+  const status = ticketStatusLabel(ticket.status);
+  const priority = ticketPriorityLabel(ticket.priority);
+  const actionUrl = opts.admin ? "/admin/ocean-support/" + ticket.id : "/ocean/support/" + ticket.id;
   const controls = opts.admin
-    ? '<form method="post" action="/admin/ocean-support/' + esc(ticket.id) + '"><label>Estado</label><select name="status"><option value="open"' + (ticket.status === "open" ? " selected" : "") + '>Abierto</option><option value="in_progress"' + (ticket.status === "in_progress" ? " selected" : "") + '>En revisión</option><option value="closed"' + (ticket.status === "closed" ? " selected" : "") + '>Resuelto</option></select><label>Respuesta de OceanHub Staff</label><textarea name="reply" maxlength="' + MAX_TICKET_BODY + '" placeholder="Escribe una respuesta (opcional)"></textarea><button>Guardar actualización</button></form>'
-    : (ticket.status !== "closed" ? '<form method="post" action="/ocean/support/' + esc(ticket.id) + '/reply"><label>Responder</label><textarea name="body" maxlength="' + MAX_TICKET_BODY + '" required></textarea><button>Enviar respuesta</button></form>' : '<p class="muted">Este ticket está cerrado.</p>');
-  return '<section class="card"><div class="row"><h3>#' + esc(ticket.id.slice(0, 8)) + ' · ' + esc(ticket.subject) + '</h3><span class="pill">' + esc(ticket.status) + '</span></div><p class="muted">' + esc(ticket.category) + ' · ' + esc(ticket.owner_name || "Usuario") + (opts.admin ? " · " + esc(ticket.owner_email) : "") + ' · ' + esc(new Date(ticket.created_at).toLocaleString("es-DO")) + '</p>' + messages + controls + '</section>';
+    ? '<form method="post" action="/admin/ocean-support/' + esc(ticket.id) + '"><label>Estado</label><select name="status"><option value="open"' + (ticket.status === "open" ? " selected" : "") + '>Abierto</option><option value="in_progress"' + (ticket.status === "in_progress" ? " selected" : "") + '>En revisión</option><option value="closed"' + (ticket.status === "closed" ? " selected" : "") + '>Resuelto</option></select><label>Prioridad</label><select name="priority"><option value="low"' + (ticket.priority === "low" ? " selected" : "") + '>Baja</option><option value="normal"' + ((!ticket.priority || ticket.priority === "normal") ? " selected" : "") + '>Normal</option><option value="high"' + (ticket.priority === "high" ? " selected" : "") + '>Alta</option></select><label>Respuesta de OceanHub Staff</label><textarea name="reply" maxlength="' + MAX_TICKET_BODY + '" placeholder="Escribe una respuesta (opcional)"></textarea><button>Guardar actualización</button></form>'
+    : (ticket.status !== "closed" ? '<form method="post" action="/ocean/support/' + esc(ticket.id) + '/reply"><label>Responder</label><textarea name="body" maxlength="' + MAX_TICKET_BODY + '" required></textarea><button>Enviar respuesta</button></form>' : '<p class="muted">Este ticket está resuelto. Ya no admite nuevas respuestas.</p>');
+  const summary = opts.summary
+    ? '<p class="muted">Última actualización: ' + esc(new Date(ticket.updated_at || ticket.created_at).toLocaleString("es-DO")) + '<br>Último mensaje: ' + esc(lastMessage ? lastMessage.body.slice(0, 180) : "Sin mensajes") + '</p><div class="actions"><a class="btn" href="' + esc(actionUrl) + '">Abrir conversación →</a></div>'
+    : messages + controls;
+  return '<section class="card"><div class="row"><h3>#' + esc(String(ticket.id || "").slice(0, 8)) + ' · ' + esc(ticket.subject) + '</h3><span class="pill">' + esc(status) + '</span></div><p class="muted">' + esc(ticket.category) + ' · ' + esc(priority) + ' · ' + esc(ticket.owner_name || "Usuario") + (opts.admin ? " · " + esc(ticket.owner_email) : "") + ' · ' + esc(new Date(ticket.created_at).toLocaleString("es-DO")) + '</p>' + summary + '</section>';
 }
 
 async function handleSupport(request, env, auth, deps, url) {
   if (!(await isFeatureEnabled(env, "support_desk"))) return json({ error: "Módulo desactivado" }, 404);
   if (request.method === "GET" && url.pathname === "/ocean/support") {
-    if (!(await isFeatureEnabled(env, "support_desk"))) return page("Soporte desactivado", '<p>OceanHub Support Desk está temporalmente desactivado.</p>');
     const tickets = await listUserTickets(env, auth.user.email);
-    const cards = tickets.map(function (ticket) { return renderTicket(ticket, { admin: false }); }).join("");
-    return page("OceanHub Support Desk", '<p>Abre un ticket privado y sigue las respuestas del equipo de OceanHub Staff.</p><section class="card"><h2>Crear ticket</h2><form method="post" action="/ocean/support"><label>Asunto</label><input name="subject" maxlength="100" minlength="4" required><label>Categoría</label><select name="category"><option value="general">General</option><option value="account">Cuenta</option><option value="payments">Pagos</option><option value="seller">Vendedores</option><option value="air-flow">Air Flow</option><option value="security">Seguridad</option><option value="report">Reportar contenido</option></select><label>Describe lo ocurrido</label><textarea name="body" minlength="10" maxlength="' + MAX_TICKET_BODY + '" required></textarea><button>Enviar ticket</button></form></section><h2 style="margin-top:22px">Mis tickets</h2>' + (cards || '<section class="card"><p>Aún no tienes tickets.</p></section>'));
+    tickets.sort(function (a, b) { return String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)); });
+    const open = tickets.filter(function (ticket) { return ticket.status === "open"; }).length;
+    const review = tickets.filter(function (ticket) { return ticket.status === "in_progress"; }).length;
+    const closed = tickets.filter(function (ticket) { return ticket.status === "closed"; }).length;
+    const cards = tickets.map(function (ticket) { return renderTicket(ticket, { admin: false, summary: true }); }).join("");
+    return page("OceanHub Support Center", '<p>Centro privado de ayuda. Crea un ticket, consulta su estado y continúa la conversación con OceanHub Staff.</p><section class="grid"><div class="card"><div class="muted">ABIERTOS</div><h2>' + open + '</h2></div><div class="card"><div class="muted">EN REVISIÓN</div><h2>' + review + '</h2></div><div class="card"><div class="muted">RESUELTOS</div><h2>' + closed + '</h2></div></section><section class="card"><h2>Crear ticket</h2><form method="post" action="/ocean/support"><label>Asunto</label><input name="subject" maxlength="100" minlength="4" required><label>Categoría</label><select name="category"><option value="general">General</option><option value="account">Cuenta</option><option value="payments">Pagos</option><option value="seller">Vendedores</option><option value="air-flow">Air Flow</option><option value="security">Seguridad de cuenta (prioridad alta)</option><option value="report">Reportar contenido</option></select><label>Describe lo ocurrido</label><textarea name="body" minlength="10" maxlength="' + MAX_TICKET_BODY + '" required></textarea><button>Enviar ticket</button></form></section><h2 style="margin-top:22px">Mis tickets</h2><div class="grid">' + (cards || '<section class="card"><p>Aún no tienes tickets.</p></section>') + '</div>');
   }
   if (url.pathname === "/ocean/support" && request.method === "POST") {
     const form = await request.formData();
     const result = await createTicket(env, auth, form, deps);
-    if (result.error) return page("No se pudo crear el ticket", '<section class="card"><p class="warning">' + esc(result.error) + '</p><a class="btn" href="/ocean/support">Volver</a></section>');
+    if (result.error) return page("No se pudo crear el ticket", '<section class="card"><p class="warning">' + esc(result.error) + '</p><a class="btn" href="/ocean/support">Volver</a></section>', { status: result.status || 400 });
     return redirect(request, "/ocean/support");
+  }
+  const detailMatch = url.pathname.match(/^\/ocean\/support\/([a-f0-9]{32})$/);
+  if (detailMatch && request.method === "GET") {
+    const ticket = await getJson(env, "oh_suite_ticket_" + detailMatch[1], null);
+    const hash = await accountKey(auth.user.email);
+    if (!ticket || ticket.owner_hash !== hash) return json({ error: "Ticket no encontrado" }, 404);
+    return page("Ticket de soporte #" + detailMatch[1].slice(0, 8), renderTicket(ticket, { admin: false }), { back: "/ocean/support" });
   }
   const replyMatch = url.pathname.match(/^\/ocean\/support\/([a-f0-9]{32})\/reply$/);
   if (replyMatch && request.method === "POST") {
@@ -520,7 +546,7 @@ async function handleSupport(request, env, auth, deps, url) {
     if (!(await allowAction(deps, env, "ticket-reply", auth.user.email, 20, 3600))) return json({ error: "Demasiadas respuestas" }, 429);
     if (!(await addTicketReply(env, ticket, "user", auth.user.name || "Usuario", form.get("body")))) return json({ error: "La respuesta está vacía o el ticket alcanzó su límite." }, 400);
     await putJson(env, "oh_suite_ticket_" + replyMatch[1], ticket);
-    return redirect(request, "/ocean/support");
+    return redirect(request, "/ocean/support/" + replyMatch[1]);
   }
   return null;
 }
@@ -528,21 +554,51 @@ async function handleSupport(request, env, auth, deps, url) {
 async function handleAdminSupport(request, env, deps, url) {
   const list = await listIndexed(env, "oh_suite_tickets_index", 500);
   const match = url.pathname.match(/^\/admin\/ocean-support\/([a-f0-9]{32})$/);
+  if (match && request.method === "GET") {
+    const ticket = await getJson(env, "oh_suite_ticket_" + match[1], null);
+    if (!ticket) return json({ error: "Ticket no encontrado" }, 404);
+    return page("Ticket #" + match[1].slice(0, 8) + " · OceanHub Staff", renderTicket(ticket, { admin: true }), { admin: true, back: "/admin/ocean-support" });
+  }
   if (match && request.method === "POST") {
     const ticket = await getJson(env, "oh_suite_ticket_" + match[1], null);
     if (!ticket) return json({ error: "Ticket no encontrado" }, 404);
     const form = await request.formData();
     const status = String(form.get("status") || ticket.status);
+    const priority = String(form.get("priority") || ticket.priority || "normal");
     if (!["open", "in_progress", "closed"].includes(status)) return json({ error: "Estado no válido" }, 400);
+    if (!["low", "normal", "high"].includes(priority)) return json({ error: "Prioridad no válida" }, 400);
+    const previousStatus = ticket.status;
+    const previousPriority = ticket.priority || "normal";
     ticket.status = status;
+    ticket.priority = priority;
     const reply = String(form.get("reply") || "").trim();
     if (reply && !(await addTicketReply(env, ticket, "staff", "OceanHub Staff", reply))) return json({ error: "No se pudo guardar la respuesta." }, 400);
     ticket.updated_at = new Date().toISOString();
     await putJson(env, "oh_suite_ticket_" + match[1], ticket);
-    if (reply) await notify(deps, env, ticket.owner_email, { type: "support_reply", title: "Nueva respuesta de OceanHub Support", body: "OceanHub Staff respondió a tu ticket: " + ticket.subject, href: "/ocean/support" });
-    return redirect(request, "/admin/ocean-support");
+    if (reply || previousStatus !== status || previousPriority !== priority) {
+      const title = reply ? "Nueva respuesta de OceanHub Support" : "Actualización de tu ticket de soporte";
+      const body = reply ? "OceanHub Staff respondió a tu ticket: " + ticket.subject : "El estado de tu ticket «" + ticket.subject + "» cambió a " + ticketStatusLabel(status) + ".";
+      await notify(deps, env, ticket.owner_email, { type: "support_reply", title: title, body: body, href: "/ocean/support/" + ticket.id });
+    }
+    return redirect(request, "/admin/ocean-support/" + ticket.id);
   }
-  return page("Support Desk · Administración", '<p>Tickets visibles solo para OceanHub Staff. Las respuestas se envían al centro privado del propietario.</p>' + (list.map(function (ticket) { return renderTicket(ticket, { admin: true }); }).join("") || '<section class="card"><p>No hay tickets registrados.</p></section>'), { admin: true });
+  const statusFilter = String(url.searchParams.get("status") || "all");
+  const allowedFilter = ["all", "open", "in_progress", "closed"];
+  const safeFilter = allowedFilter.includes(statusFilter) ? statusFilter : "all";
+  const counts = {
+    all: list.length,
+    open: list.filter(function (ticket) { return ticket.status === "open"; }).length,
+    in_progress: list.filter(function (ticket) { return ticket.status === "in_progress"; }).length,
+    closed: list.filter(function (ticket) { return ticket.status === "closed"; }).length
+  };
+  const visible = list.filter(function (ticket) { return safeFilter === "all" || ticket.status === safeFilter; });
+  visible.sort(function (a, b) {
+    const priorityOrder = { high: 0, normal: 1, low: 2 };
+    return (priorityOrder[a.priority || "normal"] - priorityOrder[b.priority || "normal"]) || String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at));
+  });
+  const tabs = '<div class="actions"><a class="btn" href="/admin/ocean-support">Todos (' + counts.all + ')</a><a class="btn secondary" href="/admin/ocean-support?status=open">Abiertos (' + counts.open + ')</a><a class="btn secondary" href="/admin/ocean-support?status=in_progress">En revisión (' + counts.in_progress + ')</a><a class="btn secondary" href="/admin/ocean-support?status=closed">Resueltos (' + counts.closed + ')</a></div>';
+  const cards = visible.map(function (ticket) { return renderTicket(ticket, { admin: true, summary: true }); }).join("");
+  return page("Support Center · Administración", '<p>Cola privada para OceanHub Staff. Los casos de prioridad alta aparecen primero; abre cada ticket para responder y actualizar su estado.</p>' + tabs + '<div class="grid">' + (cards || '<section class="card"><p>No hay tickets en este filtro.</p></section>') + '</div>', { admin: true });
 }
 
 async function listMarketListings(env, includePending) {
@@ -562,7 +618,7 @@ async function handleMarket(request, env, auth, deps, url) {
     const listings = await listMarketListings(env, false);
     const isSeller = auth.user.role === "reseller";
     const form = isSeller ? '<section class="card"><h2>Publicar en el catálogo</h2><p>Las publicaciones pasan por revisión de OceanHub Staff antes de aparecer públicamente.</p><form method="post" action="/ocean/market"><label>Nombre del producto</label><input name="title" maxlength="80" minlength="4" required><label>Categoría</label><select name="category"><option value="digital">Producto digital</option><option value="service">Servicio</option><option value="game">Videojuegos</option><option value="other">Otro</option></select><label>Descripción</label><textarea name="description" maxlength="2000" minlength="20" required></textarea><label>Precio anunciado (USD)</label><input type="number" name="price" min="0.50" max="5000" step="0.01" required><button>Enviar a revisión</button></form></section>' : '<section class="card"><p>El catálogo está abierto para explorar. Para publicar, debes tener el rol OceanHub Seller.</p></section>';
-    const cards = listings.map(function (item) { return '<section class="card"><div class="row"><h3>' + esc(item.title) + '</h3><span class="pill">$' + Number(item.price).toFixed(2) + ' USD</span></div><p>' + esc(item.description) + '</p><p class="muted">' + esc(item.category) + ' · Publicado por @' + esc(item.seller_name) + '</p></section>'; }).join("");
+    const cards = listings.map(function (item) { const sellerName = String(item.seller_name || "seller").replace(/^@/, "").slice(0, 40); const sellerHref = "/ocean/sellers/" + encodeURIComponent(sellerName); return '<section class="card"><div class="row"><h3>' + esc(item.title) + '</h3><span class="pill">$' + Number(item.price).toFixed(2) + ' USD</span></div><p>' + esc(item.description) + '</p><p class="muted">' + esc(item.category) + ' · Publicado por <a href="' + esc(sellerHref) + '">@' + esc(sellerName) + '</a></p></section>'; }).join("");
     return page("OceanHub Marketplace", '<div class="notice">El catálogo no cobra ni procesa pedidos todavía. No envíes dinero ni datos de pago a través de publicaciones. El checkout se activará solo después de integrar y probar el flujo oficial de PayPal.</div>' + form + '<h2 style="margin-top:22px">Catálogo aprobado</h2><div class="grid">' + (cards || '<section class="card"><p>Aún no hay publicaciones aprobadas.</p></section>') + '</div>');
   }
   if (url.pathname === "/ocean/market" && request.method === "POST") {
@@ -611,14 +667,42 @@ async function handleAdminMarket(request, env, deps, url) {
 async function handleSecurity(request, env, auth, deps, url) {
   if (!(await isFeatureEnabled(env, "security_center"))) return json({ error: "Módulo desactivado" }, 404);
   if (url.pathname === "/ocean/security" && request.method === "GET") {
-    if (!(await isFeatureEnabled(env, "security_center"))) return page("Security Center desactivado", '<p>Este módulo está temporalmente desactivado.</p>');
     const session = await getJson(env, "session_" + auth.sessionToken, {});
-    return page("OceanHub Security Center", '<section class="card"><h2>Sesión actual</h2><p>Cuenta: <b>' + esc(auth.user.email) + '</b></p><p>Rol: ' + esc(auth.user.role) + '</p><p>Iniciada: ' + esc(session.created ? new Date(session.created).toLocaleString("es-DO") : "No disponible") + '</p><span class="status">Sesión actual autenticada</span></section><section class="card"><h2>Proteger mi cuenta</h2><p>La acción siguiente invalida las demás sesiones de tu cuenta y mantiene esta sesión activa. No muestra ni comparte tokens.</p><form method="post" action="/ocean/security/revoke-others"><button>🔒 Cerrar las demás sesiones</button></form><p class="muted">También puedes revisar la configuración de 2FA en tu perfil y cerrar esta sesión desde el menú de cuenta.</p></section>');
+    let activity = [];
+    try {
+      if (typeof deps.getLoginHistory === "function") activity = await deps.getLoginHistory(env, auth.user.email, 12);
+    } catch (_) { activity = []; }
+    const labels = {
+      login: "Inicio de sesión",
+      login_2fa: "Inicio de sesión con 2FA",
+      register: "Cuenta creada",
+      password_reset: "Restablecimiento de contraseña",
+      close_other_sessions: "Cierre de otras sesiones"
+    };
+    const rows = (Array.isArray(activity) ? activity : []).map(function (entry) {
+      const details = entry && entry.details && typeof entry.details === "object" ? entry.details : {};
+      const stamp = new Date(entry.timestamp || "");
+      const dateLabel = Number.isNaN(stamp.getTime()) ? "Fecha no disponible" : stamp.toLocaleString("es-DO");
+      const device = String(details.userAgent || "").slice(0, 180);
+      const method = String(details.method || "").slice(0, 60);
+      return '<div class="item"><div class="row"><b>' + esc(labels[entry.action] || "Actividad de cuenta") + '</b><span class="muted">' + esc(dateLabel) + '</span></div>' + (method ? '<p class="muted">Método: ' + esc(method) + '</p>' : '') + (device ? '<p class="muted">Dispositivo: ' + esc(device) + '</p>' : '') + '</div>';
+    }).join("");
+    const twoFactor = auth.user.otp_secret ? '<span class="status">Activada</span>' : '<span class="warning">No activada</span>';
+    const emailVerified = auth.user.email_verified === true ? '<span class="status">Verificado</span>' : '<span class="warning">Pendiente</span>';
+    const started = Number(session.created || 0);
+    const startedLabel = started > 0 ? new Date(started).toLocaleString("es-DO") : "No disponible";
+    const history = rows || '<p class="muted">Todavía no hay eventos recientes registrados. Los registros disponibles se conservan durante un máximo de 30 días.</p>';
+    const advice = auth.user.otp_secret ? "" : '<div class="notice">Recomendación: activa la autenticación en dos pasos desde tu perfil para añadir una capa extra de protección.</div>';
+    return page("OceanHub Security Center", '<section class="grid"><div class="card"><div class="muted">CUENTA</div><h2>' + esc(auth.user.email) + '</h2><p>Correo: ' + emailVerified + '</p><p>Autenticación en dos pasos: ' + twoFactor + '</p></div><div class="card"><div class="muted">SESIÓN ACTUAL</div><h2>' + esc(auth.user.role) + '</h2><p>Iniciada: ' + esc(startedLabel) + '</p><span class="status">Sesión autenticada</span></div></section>' + advice + '<section class="card"><h2>Actividad reciente de la cuenta</h2><p class="muted">Se muestran fechas, métodos y dispositivos registrados. Por privacidad, esta pantalla no revela direcciones IP, cookies ni tokens.</p>' + history + '</section><section class="card"><h2>Proteger mi cuenta</h2><p>Al cerrar las demás sesiones, los otros dispositivos tendrán que iniciar sesión nuevamente. Esta sesión permanecerá abierta.</p><form method="post" action="/ocean/security/revoke-others"><button>🔒 Cerrar las demás sesiones</button></form><div class="actions"><a class="btn secondary" href="/profile">Configuración de cuenta y 2FA</a><a class="btn secondary" href="/logout">Cerrar esta sesión</a></div></section>', { back: "/ocean" });
   }
   if (url.pathname === "/ocean/security/revoke-others" && request.method === "POST") {
+    if (!(await allowAction(deps, env, "security-revoke-others", auth.user.email, 3, 3600))) return json({ error: "Has alcanzado el límite de cierres de sesiones. Inténtalo más tarde." }, 429);
     if (typeof deps.revokeOtherSessions !== "function") return json({ error: "La revocación de sesiones no está disponible." }, 503);
     const ok = await deps.revokeOtherSessions(env, auth);
-    return page("Sesiones protegidas", '<section class="card"><p class="status">' + (ok ? "Las demás sesiones han quedado invalidadas." : "No se pudo completar la revocación.") + '</p><a class="btn" href="/ocean/security">Volver a seguridad</a></section>');
+    if (ok && typeof deps.logUserAction === "function") {
+      try { await deps.logUserAction(env, auth.user.email, "close_other_sessions", {}); } catch (_) {}
+    }
+    return page("Sesiones protegidas", '<section class="card"><p class="' + (ok ? "status" : "warning") + '">' + (ok ? "Las demás sesiones han quedado invalidadas." : "No se pudo completar la revocación.") + '</p><a class="btn" href="/ocean/security">Volver a seguridad</a></section>');
   }
   return null;
 }
@@ -637,12 +721,52 @@ function getAchievementRows(xp, role) {
   }).join("");
 }
 
+
+async function handleSellerReputation(request, env, deps, encodedUsername) {
+  let username = "";
+  try { username = decodeURIComponent(String(encodedUsername || "")).replace(/^@/, "").trim(); } catch (_) {}
+  if (!/^[a-z0-9_.-]{2,40}$/i.test(username)) return page("Vendedor no encontrado", '<p>El perfil solicitado no está disponible.</p>', { status: 404, back: "/ocean/market" });
+  const email = String(await env.STATS.get("username_" + username.toLowerCase()) || "").trim().toLowerCase();
+  if (!email || !/^.+@.+\..+$/.test(email)) return page("Vendedor no encontrado", '<p>No encontramos un vendedor con ese usuario.</p>', { status: 404, back: "/ocean/market" });
+  const user = await getJson(env, "user_" + email, null);
+  if (!user || user.role !== "reseller" || typeof deps.getReseller !== "function") return page("Vendedor no encontrado", '<p>Este perfil no corresponde a una cuenta OceanHub Seller activa.</p>', { status: 404, back: "/ocean/market" });
+  let reseller = null;
+  try { reseller = await deps.getReseller(env, email); } catch (_) {
+    return page("Perfil no disponible", '<div class="notice">No fue posible verificar los datos comerciales en este momento.</div>', { status: 503, back: "/ocean/market" });
+  }
+  if (!reseller || reseller.role !== "reseller") return page("Vendedor no encontrado", '<p>Este perfil no corresponde a una cuenta OceanHub Seller activa.</p>', { status: 404, back: "/ocean/market" });
+  const hash = await accountKey(email);
+  const listings = (await listMarketListings(env, false)).filter(function (item) { return item.seller_hash === hash; });
+  const badge = await getVerifiedBadge(env, email);
+  const rank = typeof deps.getOceanSellerRank === "function"
+    ? deps.getOceanSellerRank(reseller)
+    : { title: "Ocean Starter", sold: Array.isArray(reseller.claves_vendidas) ? reseller.claves_vendidas.length : 0 };
+  const sold = Array.isArray(reseller.claves_vendidas) ? reseller.claves_vendidas.length : 0;
+  const displayName = String(user.name || user.username || username).slice(0, 80);
+  const publicUsername = String(user.username || reseller.username || username).replace(/^@/, "").slice(0, 40);
+  const sellerId = String(reseller.seller_id || "No asignado").slice(0, 32);
+  const created = new Date(user.created_at || "");
+  const since = Number.isNaN(created.getTime()) ? "No disponible" : created.toLocaleDateString("es-DO");
+  const listingCards = listings.map(function (item) {
+    return '<section class="card"><div class="row"><h3>' + esc(item.title) + '</h3><span class="pill">$' + Number(item.price || 0).toFixed(2) + ' USD</span></div><p>' + esc(item.description) + '</p><p class="muted">Publicación aprobada por OceanHub Staff</p></section>';
+  }).join("");
+  const saleText = sold > 0
+    ? '<div class="card"><div class="muted">CLAVES REGISTRADAS COMO VENDIDAS</div><h2>' + sold.toLocaleString("es-DO") + '</h2></div>'
+    : '<div class="card"><div class="muted">REGISTROS DE VENTA</div><h2>Sin registros</h2><p class="muted">OceanHub todavía no tiene ventas completadas vinculadas a este perfil.</p></div>';
+  const verified = renderVerifiedBadge(badge);
+  const reviewNotice = '<div class="notice">Las estrellas y reseñas de compradores aún no están activadas: OceanHub necesita vincular cada valoración a una compra completada para evitar opiniones falsas. Este perfil muestra únicamente datos que el sistema puede comprobar.</div>';
+  return page("Perfil de vendedor", '<section class="card"><div class="muted">OCEANHUB SELLERS</div><h2>@' + esc(publicUsername) + verified + '</h2><p>' + esc(displayName) + '</p><p class="muted">ID de vendedor: ' + esc(sellerId) + ' · Miembro desde: ' + esc(since) + '</p></section><section class="grid"><div class="card"><div class="muted">RANGO ACTUAL</div><h2>' + esc(rank.title || "Ocean Starter") + '</h2></div>' + saleText + '<div class="card"><div class="muted">PUBLICACIONES APROBADAS</div><h2>' + listings.length.toLocaleString("es-DO") + '</h2></div></section>' + reviewNotice + '<h2>Catálogo de este vendedor</h2><div class="grid">' + (listingCards || '<section class="card"><p>Este vendedor todavía no tiene publicaciones aprobadas.</p></section>') + '</div>', { back: "/ocean/market" });
+}
+
 async function handleReputation(request, env, auth, deps) {
   if (!(await isFeatureEnabled(env, "reputation"))) return page("Reputation desactivado", '<p>Este módulo está temporalmente desactivado.</p>');
   const state = typeof deps.communityXpState === "function" ? await deps.communityXpState(env, auth.user.email) : { xp: 0, season: { xp: 0 } };
   const xp = Math.max(0, Number(state.xp) || 0);
   const level = Math.floor(Math.sqrt(xp / 25)) + 1;
-  return page("OceanHub Reputation", '<section class="grid"><div class="card"><div class="muted">OCEAN XP TOTAL</div><h1>' + xp.toLocaleString("es-DO") + '</h1></div><div class="card"><div class="muted">NIVEL ESTIMADO</div><h1>' + level + '</h1></div><div class="card"><div class="muted">XP DE TEMPORADA</div><h1>' + Math.max(0, Number(state.season && state.season.xp) || 0).toLocaleString("es-DO") + '</h1></div></section><section class="card"><h2>Logros</h2>' + getAchievementRows(xp, auth.user.role) + '</section><p class="muted">La reputación es transparente y positiva: se basa en XP registrado y roles reales. No se usa como sanción ni como evaluación automática de usuarios.</p><a class="btn" href="/ocean-xp">Abrir Ocean XP</a>');
+  const sellerProfile = auth.user.role === "reseller" && auth.user.username
+    ? '<section class="card"><h2>Reputación comercial</h2><p>Consulta los datos públicos y las publicaciones aprobadas de tu perfil OceanHub Seller. No se inventan calificaciones ni reseñas.</p><a class="btn" href="/ocean/sellers/' + esc(encodeURIComponent(String(auth.user.username).replace(/^@/, ""))) + '">Ver mi perfil de vendedor →</a></section>'
+    : "";
+  return page("OceanHub Reputation", '<section class="grid"><div class="card"><div class="muted">OCEAN XP TOTAL</div><h1>' + xp.toLocaleString("es-DO") + '</h1></div><div class="card"><div class="muted">NIVEL ESTIMADO</div><h1>' + level + '</h1></div><div class="card"><div class="muted">XP DE TEMPORADA</div><h1>' + Math.max(0, Number(state.season && state.season.xp) || 0).toLocaleString("es-DO") + '</h1></div></section><section class="card"><h2>Logros</h2>' + getAchievementRows(xp, auth.user.role) + '</section><p class="muted">La reputación de comunidad es transparente y positiva: se basa en XP registrado y roles reales. No se usa como sanción ni como evaluación automática de usuarios.</p>' + sellerProfile + '<a class="btn" href="/ocean-xp">Abrir Ocean XP</a>');
 }
 
 async function countPrefix(env, prefix, maxPages) {
@@ -769,7 +893,9 @@ export async function handleOceanSuiteRoute(request, env, deps) {
   if (path === "/ocean/air-flow" && request.method === "GET") return (await isFeatureEnabled(env, "air_flow_workspace")) ? handleAirFlowWorkspace(env) : page("Air Flow Workspace desactivado", "<p>Este módulo está temporalmente desactivado.</p>");
   if (path === "/ocean/reputation" && request.method === "GET") return handleReputation(request, env, auth, deps);
   if (path === "/ocean/security" || path === "/ocean/security/revoke-others") return handleSecurity(request, env, auth, deps, url);
-  if (path === "/ocean/support" || /^\/ocean\/support\/[a-f0-9]{32}\/reply$/.test(path)) return handleSupport(request, env, auth, deps, url);
+  if (path === "/ocean/support" || /^\/ocean\/support\/[a-f0-9]{32}$/.test(path) || /^\/ocean\/support\/[a-f0-9]{32}\/reply$/.test(path)) return handleSupport(request, env, auth, deps, url);
+  const sellerProfileMatch = path.match(/^\/ocean\/sellers\/([^/]+)$/);
+  if (sellerProfileMatch && request.method === "GET") return handleSellerReputation(request, env, deps, sellerProfileMatch[1]);
   if (path === "/ocean/market") return handleMarket(request, env, auth, deps, url);
 
   if (path === "/ocean/verified") return handleUserVerification(request, env, auth, deps);

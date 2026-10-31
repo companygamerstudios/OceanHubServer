@@ -36,7 +36,11 @@ function setup(user) {
     getStats: async () => ({ total_verifications: 12 }),
     socialPushNotif: async () => {},
     sendEmail: async () => true,
-    revokeOtherSessions: async () => true
+    revokeOtherSessions: async () => true,
+    getLoginHistory: async () => [],
+    logUserAction: async () => {},
+    getReseller: async () => null,
+    getOceanSellerRank: (reseller) => ({ title: (Array.isArray(reseller.claves_vendidas) && reseller.claves_vendidas.length >= 5) ? "Ocean Growth" : "Ocean Starter", sold: Array.isArray(reseller.claves_vendidas) ? reseller.claves_vendidas.length : 0 })
   };
   return { env, deps, store };
 }
@@ -63,6 +67,83 @@ test("Ocean Suite home links to existing community, notifications and events mod
   assert.match(html, /href="\/notifications"/);
   assert.match(html, /href="\/events"/);
   assert.match(html, /href="\/feed"/);
+});
+
+
+test("security center displays recent sign-ins and 2FA state without exposing IP addresses or secrets", async () => {
+  const user = { email: "secure@example.test", name: "Secure User", role: "user", email_verified: true, otp_secret: "private-totp-seed" };
+  const { env, deps } = setup(user);
+  await env.STATS.put("session_current-session-token", JSON.stringify({ created: Date.now(), sessionVersion: 0 }));
+  deps.getLoginHistory = async () => [{
+    action: "login",
+    timestamp: "2026-10-31T10:00:00.000Z",
+    details: { ip: "203.0.113.99", userAgent: "OceanHub Test Browser", method: "password" }
+  }];
+  const response = await handleOceanSuiteRoute(request("/ocean/security"), env, deps);
+  const html = await response.text();
+  assert.match(html, /OceanHub Security Center/);
+  assert.match(html, /Activada/);
+  assert.match(html, /OceanHub Test Browser/);
+  assert.doesNotMatch(html, /203\.0\.113\.99/);
+  assert.doesNotMatch(html, /private-totp-seed/);
+  assert.doesNotMatch(html, /current-session-token/);
+});
+
+test("support security tickets receive high priority and private conversation pages enforce ownership", async () => {
+  const owner = setup({ email: "owner@example.test", name: "Owner", role: "user" });
+  const form = new URLSearchParams({ subject: "Alerta de acceso", category: "security", body: "No reconozco un inicio de sesión reciente en mi cuenta." });
+  const submitted = await handleOceanSuiteRoute(request("/ocean/support", "POST", form), owner.env, owner.deps);
+  assert.equal(submitted.status, 303);
+  const ticketKey = Array.from(owner.store.values.keys()).find((key) => key.startsWith("oh_suite_ticket_"));
+  const id = ticketKey.slice("oh_suite_ticket_".length);
+  const ticket = await owner.store.get(ticketKey, "json");
+  assert.equal(ticket.priority, "high");
+  const detail = await handleOceanSuiteRoute(request("/ocean/support/" + id), owner.env, owner.deps);
+  assert.match(await detail.text(), /No reconozco un inicio de sesión/);
+  const other = setup({ email: "other@example.test", name: "Other", role: "user" });
+  other.env.STATS = owner.store;
+  const denied = await handleOceanSuiteRoute(request("/ocean/support/" + id), other.env, other.deps);
+  assert.equal(denied.status, 404);
+});
+
+test("seller reputation profile exposes only verified public seller information", async () => {
+  const seller = setup({ email: "seller@example.test", name: "Seller Name", username: "seller", role: "reseller", created_at: "2026-08-03T00:00:00.000Z" });
+  const emailHash = createHash("sha256").update("seller@example.test").digest("hex").slice(0, 32);
+  await seller.store.put("username_seller", "seller@example.test");
+  await seller.store.put("user_seller@example.test", JSON.stringify({ email: "seller@example.test", name: "Seller Name", username: "seller", role: "reseller", created_at: "2026-08-03T00:00:00.000Z" }));
+  await seller.store.put("oh_suite_verified_" + emailHash, JSON.stringify({ active: true, type: "company_affiliation", company_name: "Example Studio" }));
+  await seller.store.put("oh_suite_market_index", JSON.stringify(["oh_suite_listing_public01"]));
+  await seller.store.put("oh_suite_listing_public01", JSON.stringify({ seller_hash: emailHash, seller_name: "seller", title: "Producto aprobado", description: "Descripción pública del producto.", category: "digital", price: 8.5, status: "approved" }));
+  seller.deps.getReseller = async () => ({ role: "reseller", seller_id: "OH-1234ABCD", username: "seller", claves_vendidas: ["sale-a", "sale-b"], claves_asignadas: ["PRIVATE-KEY-DO-NOT-EXPOSE"] });
+  seller.deps.getOceanSellerRank = (reseller) => ({ title: "Ocean Starter", sold: reseller.claves_vendidas.length });
+  const response = await handleOceanSuiteRoute(request("/ocean/sellers/seller"), seller.env, seller.deps);
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /OceanHub Sellers/);
+  assert.match(html, /Empresa o afiliación verificada/);
+  assert.match(html, /Producto aprobado/);
+  assert.match(html, /2/);
+  assert.doesNotMatch(html, /seller@example\.test/);
+  assert.doesNotMatch(html, /PRIVATE-KEY-DO-NOT-EXPOSE/);
+});
+
+test("admin support inbox filters tickets and can set priority on a ticket detail page", async () => {
+  const user = setup({ email: "user@example.test", name: "User", role: "user" });
+  const form = new URLSearchParams({ subject: "Necesito soporte", category: "account", body: "No puedo cambiar algunos datos de mi perfil." });
+  await handleOceanSuiteRoute(request("/ocean/support", "POST", form), user.env, user.deps);
+  const ticketKey = Array.from(user.store.values.keys()).find((key) => key.startsWith("oh_suite_ticket_"));
+  const id = ticketKey.slice("oh_suite_ticket_".length);
+  const admin = setup({ email: "admin@example.test", name: "Admin", role: "admin" });
+  admin.env.STATS = user.store;
+  const queue = await handleOceanSuiteRoute(request("/admin/ocean-support?status=open"), admin.env, admin.deps);
+  assert.match(await queue.text(), /Abiertos/);
+  const detail = await handleOceanSuiteRoute(request("/admin/ocean-support/" + id), admin.env, admin.deps);
+  assert.match(await detail.text(), /name="priority"/);
+  await handleOceanSuiteRoute(request("/admin/ocean-support/" + id, "POST", new URLSearchParams({ status: "in_progress", priority: "high", reply: "Estamos revisando tu solicitud." })), admin.env, admin.deps);
+  const ticket = await user.store.get(ticketKey, "json");
+  assert.equal(ticket.status, "in_progress");
+  assert.equal(ticket.priority, "high");
+  assert.equal(ticket.messages.at(-1).author, "staff");
 });
 
 test("support desk creates a private ticket and lists it for its owner", async () => {
