@@ -1050,8 +1050,6 @@ export class KVLocker {
         const url = new URL(request.url);
 
         if (url.pathname === '/realtime/presence/touch' && request.method === 'POST') {
-
-        if (url.pathname === '/realtime/presence/touch' && request.method === 'POST') {
             let payload; try { payload = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
             const key = String(payload?.key || '');
             if (!/^[a-f0-9]{32}$/.test(key)) return new Response('bad key', { status: 400 });
@@ -1133,8 +1131,8 @@ export class KVLocker {
             });
             return new Response('ok');
         }
-        return new Response('not found', { status: 404 });
-    }
+             return new Response('not found', { status: 404 });
+  }
 }
 
 // ==================================================
