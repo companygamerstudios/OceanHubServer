@@ -8351,6 +8351,7 @@ async function handleWelcome(env, request) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <meta name="google-site-verification" content="8yegXbvrHbKohu90IbqCnnIGLbU-PuDTLvU8q2X4hs4" />
 <title>🌊 Ocean Hub</title>
 <style>
     * { margin:0; padding:0; box-sizing:border-box; }
