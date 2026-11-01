@@ -10988,7 +10988,7 @@ export async function workerFetch(request, env) {
         if (path === '/admin/backup') return await handleBackup(env, request);
         if (path === '/admin/upload-keys') return await handleUploadKeys(env, request);
 
-        if (path === '/google-site-verification=-fN3u75bTpGxDsM2DbBivq0SJ2fuREK-QsMsbvJGnHI') return new Response('google-site-verification=-fN3u75bTpGxDsM2DbBivq0SJ2fuREK-QsMsbvJGnHI', { headers: { 'Content-Type': 'text/html' } });
+        if (path === '/google-site-verification=pGiqWX9w9sbdMXnEixc6AcgLhGlC15_RoZbvhzsm1j0') return new Response('google-site-verification=pGiqWX9w9sbdMXnEixc6AcgLhGlC15_RoZbvhzsm1j0', { headers: { 'Content-Type': 'text/html' } });
 
         // --- OAuth ---
         if (path === '/auth/discord') return await handleDiscordAuth(env);
