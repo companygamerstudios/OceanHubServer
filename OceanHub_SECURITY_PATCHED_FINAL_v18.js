@@ -10373,7 +10373,7 @@ async function handleFriendsPage(env, request) {
     `, `
     function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]});}
     async function api(url,opts){var r=await fetch(url,Object.assign({credentials:'same-origin'},opts||{}));var d=await r.json().catch(function(){return{}});if(!r.ok)throw new Error(d.error||r.status);return d;}
-    function card(u,actions){var username=String(u.username||'');return '<div class="card row"><div class="user"><div class="av">'+esc(u.avatar_emoji||'👤')+'</div><div><b>'+esc(u.name||username)+(u.verifiedBadgeHtml || (u.verified?' <span style="color:#1da1f2">✔</span>':''))+'</b><div class="muted"><a href="/Profile/'+encodeURIComponent(username)+'">@'+esc(username)+'</a></div></div></div><div>'+actions+'</div></div>';}
+    function card(u,actions){var username=String(u.username||'');return '<div class="card row"><div class="user"><div class="av">'+esc(u.avatar_emoji||'👤')+'</div><div><b>'+esc(u.name||username)+(u.verified?' <span style="color:#1da1f2">✔</span>':'')+'</b><div class="muted"><a href="/Profile/'+encodeURIComponent(username)+'">@'+esc(username)+'</a></div></div></div><div>'+actions+'</div></div>';}
     async function load(){
       var d=await api('/api/friends');
       var b=await api('/blocks');
@@ -10428,7 +10428,7 @@ async function handleMessagesPage(env, request, peerUsername) {
         async function api(url){var r=await fetch(url,{credentials:'same-origin'});var d=await r.json().catch(function(){return{}});if(!r.ok)throw new Error(d.error||r.status);return d;}
         api('/messages/api').then(function(d){
           var list=d.threads||[];
-          document.getElementById('list').innerHTML=list.length?list.map(function(t){var u=t.user||{};var username=String(u.username||'');return '<a class="card row" href="/messages/'+encodeURIComponent(username)+'" style="text-decoration:none;color:inherit"><div class="user"><div class="av">'+esc(u.avatar_emoji||'👤')+'</div><div><b>'+esc(u.name||username)+(u.verified?' <span style="color:#1da1f2">✔</span>':'')+'</b><div class="muted">'+esc(t.last||'')+'</div></div></div><div class="muted">'+esc((t.at||'').slice(11,16))+'</div></a>';}).join(''):'<p class="muted">No hay conversaciones todavía</p>';
+          document.getElementById('list').innerHTML=list.length?list.map(function(t){var u=t.user||{};var username=String(u.username||'');return '<a class="card row" href="/messages/'+encodeURIComponent(username)+'" style="text-decoration:none;color:inherit"><div class="user"><div class="av">'+esc(u.avatar_emoji||'👤')+'</div><div><b>'+esc(u.name||username)+(u.verifiedBadgeHtml || (u.verified?' <span style="color:#1da1f2">✔</span>':''))+'</b><div class="muted">'+esc(t.last||'')+'</div></div></div><div class="muted">'+esc((t.at||'').slice(11,16))+'</div></a>';}).join(''):'<p class="muted">No hay conversaciones todavía</p>';
         }).catch(function(e){document.getElementById('list').innerHTML='<p class="muted">'+esc(e.message)+'</p>'});
         `);
         return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
