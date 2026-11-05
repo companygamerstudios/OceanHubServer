@@ -9569,6 +9569,7 @@ async function handleMessagesApi(env, request, peerUsername) {
             const u = await getUserByEmail(env, item.peer);
             if (!u) continue;
             const pub = socialPublicUser(await socialEnsureUserMeta(env, u));
+            pub.verifiedBadgeHtml = renderVerifiedBadge(await getVerifiedBadge(env, u.email));
             threads.push({ user: pub, last: item.last, at: item.at });
         }
         return jsonResponse({ threads });
@@ -9584,7 +9585,10 @@ async function handleMessagesApi(env, request, peerUsername) {
     if (request.method === 'GET') {
         const thread = await socialGetDmThread(env, me.email, peer.email);
         return jsonResponse({
-            peer: socialPublicUser(peer),
+            peer: {
+                ...socialPublicUser(peer),
+                verifiedBadgeHtml: renderVerifiedBadge(await getVerifiedBadge(env, peer.email))
+            },
             messages: (thread.messages || []).map(m => ({
                 id: m.id, from: m.from === me.email.toLowerCase() ? 'me' : 'them',
                 text: m.text, at: m.at
@@ -10369,7 +10373,7 @@ async function handleFriendsPage(env, request) {
     `, `
     function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]});}
     async function api(url,opts){var r=await fetch(url,Object.assign({credentials:'same-origin'},opts||{}));var d=await r.json().catch(function(){return{}});if(!r.ok)throw new Error(d.error||r.status);return d;}
-    function card(u,actions){var username=String(u.username||'');return '<div class="card row"><div class="user"><div class="av">'+esc(u.avatar_emoji||'👤')+'</div><div><b>'+esc(u.name||username)+(u.verified?' <span style="color:#1da1f2">✔</span>':'')+'</b><div class="muted"><a href="/Profile/'+encodeURIComponent(username)+'">@'+esc(username)+'</a></div></div></div><div>'+actions+'</div></div>';}
+    function card(u,actions){var username=String(u.username||'');return '<div class="card row"><div class="user"><div class="av">'+esc(u.avatar_emoji||'👤')+'</div><div><b>'+esc(u.name||username)+(u.verifiedBadgeHtml || (u.verified?' <span style="color:#1da1f2">✔</span>':''))+'</b><div class="muted"><a href="/Profile/'+encodeURIComponent(username)+'">@'+esc(username)+'</a></div></div></div><div>'+actions+'</div></div>';}
     async function load(){
       var d=await api('/api/friends');
       var b=await api('/blocks');
@@ -10432,14 +10436,16 @@ async function handleMessagesPage(env, request, peerUsername) {
     const peer = await socialGetUserByUsername(env, peerUsername);
     if (!peer) return new Response('Usuario no encontrado', { status: 404 });
     const pub = socialPublicUser(await socialEnsureUserMeta(env, peer));
+    pub.verifiedBadgeHtml = renderVerifiedBadge(await getVerifiedBadge(env, peer.email));
     const mePublic = socialPublicUser(me);
+    mePublic.verifiedBadgeHtml = renderVerifiedBadge(await getVerifiedBadge(env, me.email));
     const html = socialShell('Chat con ' + pub.name, `
       <style>
       .chat-peer{display:flex;align-items:center;gap:12px;margin-bottom:12px}.chat-peer .av{width:48px;height:48px;border-radius:50%;font-size:22px;flex:none}.chat-peer h1{margin:0;font-size:20px}.chat-peer .muted{margin-top:3px}
       .message-row{display:flex;align-items:flex-end;gap:9px;max-width:92%;margin:8px 0}.message-row.mine{margin-left:auto;flex-direction:row-reverse}.message-avatar{width:34px;height:34px;display:grid;place-items:center;border-radius:50%;background:linear-gradient(145deg,#0bbaff,#0b61ff);flex:none;font-size:17px}.message-stack{min-width:0;max-width:calc(100% - 43px)}.message-author{font-size:11px;color:var(--muted);margin:0 4px 4px}.message-row.mine .message-author{text-align:right}.message-row .bubble{max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap}.message-row .bubble.me{background:#0b5fad}.message-row .bubble.them{background:#13283f}.chat-verified{color:#36a9ff;font-weight:800}.chat-presence{font-size:12px}.typing-indicator{display:flex;align-items:center;gap:9px;padding:8px 4px;color:var(--muted);font-size:12px}.typing-indicator[hidden]{display:none}.typing-dots{display:inline-flex;gap:4px;align-items:center}.typing-dots i{width:6px;height:6px;border-radius:50%;background:#69d9ff;animation:oh-typing-bounce 1s infinite ease-in-out}.typing-dots i:nth-child(2){animation-delay:.15s}.typing-dots i:nth-child(3){animation-delay:.3s}@keyframes oh-typing-bounce{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}
       @media(max-width:520px){.message-row{max-width:100%}.message-avatar{width:30px;height:30px}}
       </style>
-      <div class="chat-peer"><div class="av">${escapeHTML(pub.avatar_emoji || '👤')}</div><div><h1>${escapeHTML(pub.name)} ${pub.verified ? '<span class="chat-verified">✔</span>' : ''}</h1><div class="muted">@${escapeHTML(pub.username)} · <span id="peerPresence" class="chat-presence">Comprobando conexión…</span></div></div></div>
+      <div class="chat-peer"><div class="av">${escapeHTML(pub.avatar_emoji || '👤')}</div><div><h1 id="peerName">${escapeHTML(pub.name)} ${pub.verifiedBadgeHtml || (pub.verified ? '<span class="chat-verified">✔</span>' : '')}</h1><div class="muted">@${escapeHTML(pub.username)} · <span id="peerPresence" class="chat-presence">Comprobando conexión…</span></div></div></div>
       <p class="muted"><a href="/Profile/${encodeURIComponent(pub.username)}">Ver perfil</a></p>
       <div class="card"><div class="msgs" id="msgs" aria-live="polite"></div>
       <div id="typingIndicator" class="typing-indicator" aria-live="polite" hidden><span>${escapeHTML(pub.name)} está escribiendo</span><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
@@ -10455,12 +10461,12 @@ async function handleMessagesPage(env, request, peerUsername) {
       var nearBottom=el.scrollHeight-el.scrollTop-el.clientHeight<90;
       el.innerHTML=(msgs||[]).map(function(m){
         var mine=m.from==='me', actor=mine?meUser:peerUser;
-        var badge=actor.verified?' <span class="chat-verified">✔</span>':'';
+        var badge=actor.verifiedBadgeHtml || (actor.verified?' <span class="chat-verified">✔</span>':'');
         return '<div class="message-row '+(mine?'mine':'theirs')+'"><div class="message-avatar">'+esc(actor.avatar_emoji||'👤')+'</div><div class="message-stack"><div class="message-author">'+esc(actor.name||actor.username)+badge+'</div><div class="bubble '+(mine?'me':'them')+'">'+esc(m.text)+'<div class="muted" style="font-size:10px;margin-top:4px">'+esc((m.at||'').slice(11,16))+'</div></div></div></div>';
       }).join('');
       if(nearBottom)el.scrollTop=el.scrollHeight;
     }
-    async function load(){var d=await api('/messages/api/'+encodeURIComponent(un));if(d.peer)peerUser=d.peer;render(d.messages);}
+    async function load(){var d=await api('/messages/api/'+encodeURIComponent(un));if(d.peer){peerUser=d.peer;var heading=document.getElementById('peerName');if(heading)heading.innerHTML=esc(peerUser.name||peerUser.username)+(peerUser.verifiedBadgeHtml || (peerUser.verified?' <span class="chat-verified">✔</span>':''));}render(d.messages);}
     var input=document.getElementById('text'),typingOn=false,lastTypingSent=0,typingIdle=null;
     function typingRequest(active){return api('/messages/typing/'+encodeURIComponent(un),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({typing:active})}).catch(function(){});}
     function stopTyping(){clearTimeout(typingIdle);if(!typingOn)return;typingOn=false;typingRequest(false);}
