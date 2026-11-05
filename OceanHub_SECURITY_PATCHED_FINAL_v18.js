@@ -11132,6 +11132,102 @@ body.light input::placeholder,body.light textarea::placeholder{color:#587889!imp
 button:focus-visible,.btn:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[role=button]:focus-visible{outline:3px solid rgba(105,240,236,.72)!important;outline-offset:3px!important}
 table{border-collapse:separate!important;border-spacing:0!important;max-width:100%}thead th{background:rgba(105,240,236,.075)!important;color:#bceef5!important}th,td{border-bottom:1px solid rgba(135,231,245,.12)!important;padding:.72em .85em}tbody tr:hover td{background:rgba(105,240,236,.045)!important}pre,code,.inline-code,.code-block{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}pre,.code-block{overflow:auto;border:1px solid rgba(135,231,245,.17)!important;border-radius:16px!important;background:rgba(2,15,27,.72)!important;padding:16px!important;color:#c9f7ff!important}code,.inline-code{background:rgba(105,240,236,.08);border:1px solid rgba(135,231,245,.13);border-radius:7px;padding:.12em .35em;color:#aff7f0}details{border:1px solid var(--oh-edge);border-radius:16px;padding:12px 15px;background:rgba(7,30,48,.38)}summary{cursor:pointer;color:#baf8f1;font-weight:700}progress{accent-color:#69f0ec}hr{border-color:rgba(135,231,245,.13)!important}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+
+/* OCEAN GLASS PREMIUM LAYER — visual-only overrides; preserves page markup and behavior. */
+:root{
+ --oh-radius:24px;--oh-edge:rgba(139,231,248,.23);--oh-edge-hot:rgba(105,240,236,.52);
+ --oh-glass:rgba(8,31,49,.66);--oh-glass-hi:rgba(12,43,63,.82);
+ --oh-shadow:0 22px 64px rgba(0,7,20,.34),inset 0 1px 0 rgba(232,255,255,.075);
+ --oh-shadow-hover:0 28px 76px rgba(0,8,24,.43),0 0 34px rgba(48,202,222,.10),inset 0 1px 0 rgba(240,255,255,.13)
+}
+html{background-color:#041421!important}
+body{
+ background-image:
+  radial-gradient(ellipse at 8% 0%,rgba(40,210,208,.19),transparent 31%),
+  radial-gradient(ellipse at 94% 12%,rgba(81,135,255,.19),transparent 32%),
+  radial-gradient(ellipse at 52% 105%,rgba(30,130,160,.18),transparent 39%),
+  linear-gradient(145deg,#03111d 0%,#062238 47%,#061522 100%)!important;
+ background-attachment:fixed!important
+}
+body::before{opacity:.9;filter:blur(34px);animation:oh-current-drift 26s cubic-bezier(.45,0,.55,1) infinite alternate}
+body::after{opacity:.18;background-image:linear-gradient(115deg,transparent 0 49.8%,rgba(165,242,255,.045) 50%,transparent 50.2%),radial-gradient(circle at 1px 1px,rgba(181,246,255,.12) 1px,transparent 1.5px);background-size:100% 100%,34px 34px}
+@keyframes oh-page-arrive{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}
+main,.wrap,.page-content,.main-content,.main-shell,.app-shell,.content,.dashboard-layout{animation:oh-page-arrive .42s cubic-bezier(.2,.75,.25,1) both}
+:where(.card,.panel,.tile,.srv,.modal,.modal-content,.modal-box,.auth-card,.terms-box,.form-card,.content-card,.stat-card,.dashboard-card,.key-card,.chat-panel,.settings-card,.profile-card,.notification-card,.box,.glass,.glass-card,.section-card,.service-card,.product-card,.payment-card,.section,.drawer,.composer,.empty-card,.result,[role=dialog],.dropdown-menu,.popover,.sidebar,.navbar,.topbar,header.site-header,footer.site-footer){
+ border-radius:var(--oh-radius)!important;
+ border-color:var(--oh-edge)!important;
+ background:
+  radial-gradient(ellipse at 0% 0%,rgba(105,240,236,.075),transparent 48%),
+  linear-gradient(145deg,rgba(14,49,69,.76),rgba(5,23,39,.83))!important;
+ box-shadow:var(--oh-shadow)!important;
+ backdrop-filter:blur(24px) saturate(155%);
+ -webkit-backdrop-filter:blur(24px) saturate(155%);
+ transition:border-color .24s ease,box-shadow .24s ease,background-color .24s ease,transform .24s cubic-bezier(.2,.75,.25,1)!important
+}
+@media(hover:hover){
+ :where(.card,.panel,.tile,.srv,.content-card,.stat-card,.dashboard-card,.key-card,.chat-panel,.settings-card,.profile-card,.section-card,.service-card,.product-card,.payment-card,.glass-card,.notification-card):hover{
+  border-color:var(--oh-edge-hot)!important;box-shadow:var(--oh-shadow-hover)!important;transform:translateY(-2px)
+ }
+}
+:where(.wrap,.page-content,.main-content,.main-shell,.app-shell,.dashboard-layout){background:transparent!important}
+:where(nav,.nav,.navbar,.sidebar,.topbar,header.site-header){
+ background:linear-gradient(145deg,rgba(9,35,54,.84),rgba(4,21,36,.88))!important;
+ border-color:rgba(132,224,241,.19)!important;
+ box-shadow:0 16px 48px rgba(0,7,20,.25),inset 0 1px 0 rgba(230,255,255,.08)!important;
+ backdrop-filter:blur(26px) saturate(160%)!important;-webkit-backdrop-filter:blur(26px) saturate(160%)!important
+}
+:where(nav a,.nav a,.navbar a,.sidebar a,header a,[role=navigation] a){
+ border-radius:13px;transition:background .2s ease,color .2s ease,transform .2s ease,box-shadow .2s ease
+}
+:where(nav a,.nav a,.navbar a,.sidebar a,header a,[role=navigation] a):hover{
+ background:rgba(105,240,236,.085);color:#efffff!important;transform:translateX(2px)
+}
+:where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a)[aria-current=page],
+:where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a).active,
+:where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a).is-active{
+ background:linear-gradient(110deg,rgba(105,240,236,.17),rgba(77,145,255,.11))!important;
+ color:#d9ffff!important;border:1px solid rgba(105,240,236,.24);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 5px 22px rgba(35,184,202,.08)
+}
+h1{font-size:clamp(1.65rem,3vw,2.45rem)!important;letter-spacing:-.045em!important}
+h2{letter-spacing:-.035em!important}
+:where(.muted,.subtitle,.hint,.description,.secondary-text){color:#9bbbc9!important}
+:where(.badge,.pill,.tag,.chip,.status,.status-badge){
+ border:1px solid rgba(135,231,245,.2);border-radius:999px;
+ background:linear-gradient(135deg,rgba(105,240,236,.11),rgba(77,145,255,.09));
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.06)
+}
+:where(button,.btn,input[type=submit],input[type=button],input[type=reset],a.button,.button,[role=button]){
+ min-height:40px;position:relative;isolation:isolate;overflow:hidden;
+ transform:translateZ(0)
+}
+:where(button,.btn,input[type=submit],input[type=button],a.button,.button,[role=button]):focus-visible{
+ outline:2px solid rgba(131,235,255,.92)!important;outline-offset:3px!important
+}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),select,textarea){
+ min-height:44px;border-radius:15px!important;padding-left:14px!important;padding-right:14px!important
+}
+textarea{min-height:104px;resize:vertical}
+:where(.nav,.row,.toolbar,.actions){gap:10px}
+:where(table,.table-wrap){max-width:100%;overflow-x:auto}
+table{border-radius:16px;overflow:hidden}
+thead th:first-child{border-top-left-radius:12px}thead th:last-child{border-top-right-radius:12px}
+:where(.empty,.empty-state,.empty-card){border-style:dashed!important;border-color:rgba(125,213,232,.25)!important;background:linear-gradient(145deg,rgba(10,39,58,.48),rgba(5,23,39,.52))!important}
+:where(.modal,.modal-content,.modal-box,[role=dialog]){box-shadow:0 32px 100px rgba(0,4,14,.58),inset 0 1px 0 rgba(240,255,255,.11)!important}
+:where(.af-shell,.af-sidebar,.af-main,.af-panel,.af-card,.af-composer,.af-chat,.af-message,.af-mode,.af-toolbar){
+ border-color:rgba(135,231,245,.2)!important
+}
+@media(max-width:760px){
+ body{background-attachment:scroll!important}
+ :where(.card,.panel,.tile,.content-card,.stat-card,.dashboard-card,.profile-card,.product-card,.glass-card){border-radius:19px!important}
+ :where(nav,.nav,.navbar,.sidebar){backdrop-filter:blur(18px)!important;-webkit-backdrop-filter:blur(18px)!important}
+ :where(button,.btn,input[type=submit],input[type=button],a.button,.button){min-height:44px}
+}
+@media(prefers-reduced-motion:reduce){
+ main,.wrap,.page-content,.main-content,.main-shell,.app-shell,.content,.dashboard-layout{animation:none!important}
+ :where(.card,.panel,.tile,.srv,.content-card,.stat-card,.dashboard-card,.key-card,.chat-panel,.settings-card,.profile-card,.section-card,.service-card,.product-card,.payment-card,.glass-card,.notification-card){transition:none!important}
+}
+
 </style>`;
 
 export function injectOceanLiquidGlassTheme(html) {
