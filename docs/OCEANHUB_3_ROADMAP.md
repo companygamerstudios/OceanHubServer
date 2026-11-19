@@ -27,6 +27,14 @@ La configuración `previews` crea el binding SQLite Durable Object `KV_LOCKER` e
 
 Como consecuencia intencional, las páginas autenticadas que dependen de `STATS` no están habilitadas para esta primera Preview. Antes de probar funcionalidades privadas se debe aprovisionar una KV no productiva y configurar únicamente secretos de prueba; nunca se añadirá la KV productiva a `previews`. El binding Durable Object de cada Preview es independiente; no comparte sesiones ni bloqueos con producción.
 
+
+### Validación de Preview de esta fase
+- El comando configurado para la Preview de la rama es `npx wrangler preview --config wrangler.production_v18.jsonc`; el Worker no tiene un `wrangler.jsonc` predeterminado.
+- La configuración declara solo `previews.durable_objects.bindings` para `KV_LOCKER`. No declara `previews.kv_namespaces`, por lo que la KV productiva `STATS` no se conecta a esta Preview.
+- Cloudflare Build `8476d1a2-531d-477c-b464-9e0041e30e61` terminó con resultado `success` y creó la URL de rama `https://feat-oceanhub-3-download-center-oceanhud.yoelenmanuelzorrilla.workers.dev`.
+- El build muestra advertencias de bindings de producción ausentes, especialmente `STATS`; es intencional para este alcance de prueba. Las páginas autenticadas que requieren KV no forman parte de esta Preview.
+- El build exitoso no sustituye la verificación HTTP de cada ruta. La comprobación externa de `/download`, `/api/app/version` y `/app.webmanifest` permanece pendiente.
+
 ## OceanHub Everywhere y /download
 
 - /download es el centro oficial de instalación.
