@@ -1,4 +1,5 @@
 import { handleOceanSuiteRoute, getVerifiedBadge, renderVerifiedBadge } from './ocean-suite.js';
+import { handleDownloadCenterRoute, injectAppUpdateNotice } from './download-center.js';
 
 // ==========================================================
 // 🌊 OCEAN HUB V29.1 — SOCIAL + editar perfil (bio/avatar) + notificaciones
@@ -8806,6 +8807,11 @@ async function handleCronJobs(env, request) {
 
 function isPublicRoute(path) {
     const publicPaths = [
+        '/download',
+        '/api/app/version',
+        '/app.webmanifest',
+        '/sw.js',
+        '/ocean-icon.svg',
         '/welcome',
         '/login',
         '/register',
@@ -10748,6 +10754,9 @@ export async function workerFetch(request, env) {
         const url = new URL(request.url);
         const path = url.pathname;
 
+        const downloadCenterResponse = await handleDownloadCenterRoute(request);
+        if (downloadCenterResponse) return downloadCenterResponse;
+
         if (adminProtectedPath(path)) {
             const adminAuth = await requireAdmin(env, request);
             if (!adminAuth) return jsonResponse({ error: 'No autorizado' }, 403);
@@ -11365,7 +11374,9 @@ export default {
             if (responseType.includes('text/html') || !responseType || responseType.startsWith('text/plain')) {
                 try { festivityConfig = await env.STATS.get(FESTIVITY_STORAGE_KEY, 'json'); } catch (_) {}
             }
-            return await applySecurityHeaders(response, festivityConfig);
+            const securedResponse = await applySecurityHeaders(response, festivityConfig);
+            const requestPath = new URL(request.url).pathname;
+            return await injectAppUpdateNotice(securedResponse, request.method === 'GET' && !isPublicRoute(requestPath));
         } catch (error) {
             console.error('❌ Error no controlado en el Worker:', error);
             return await applySecurityHeaders(jsonResponse({
