@@ -19,8 +19,8 @@ Legend: `[x]` verified complete, `[~]` in progress, `[ ]` pending.
 - [x] Implement initial HTML version monitor for authenticated pages.
 - [ ] Add robust update policy fields and failure/outage behavior.
 - [ ] Test installation on supported Edge/Chrome desktop and Android Chrome.
-- [ ] Scaffold Tauri 2 app under `apps/oceanhub-app/`.
-- [ ] Build the first packaged shell for Windows and Android.
+- [x] Scaffold a separate Tauri 2 application under `apps/oceanhub-app/` with a responsive Ocean Glass frontend (PR #21).
+- [ ] Run native Tauri packaging builds for Windows and Android; the current green CI only validates TypeScript/Vite frontend output.
 - [ ] Prove app authentication, 2FA, logout and session revocation.
 - [ ] Configure signing-key custody outside repository/Cloudflare source config.
 - [ ] Publish verified native artifacts as GitHub Release assets and link them from `/download`.
@@ -75,3 +75,10 @@ Legend: `[x]` verified complete, `[~]` in progress, `[ ]` pending.
 - [ ] Complete accessibility, responsive and performance review.
 - [ ] Prepare changelog, rollout and rollback instructions.
 - [ ] Obtain explicit authorization before a production deployment.
+
+
+## Latest app-shell increment
+- [x] PR #21 adds the independent Tauri 2 shell, desktop/Android configuration, minimal capability set and responsive Ocean Glass prototype.
+- [x] GitHub Action `OceanHub App shell quality` passed the frontend type-check and Vite build on commit `09aebe5e212e73843bcd16b90d3cc04359b0043c`.
+- [ ] Confirm the Cloudflare branch Preview build for PR #21. It is a Worker preview only; the native shell is validated by its separate frontend workflow.
+- [ ] Native Windows/Android builds, package identity confirmation, authentication PoC, signed packages and update verification remain pending.
