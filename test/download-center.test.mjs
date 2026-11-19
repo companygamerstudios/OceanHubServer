@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Script } from 'node:vm';
 import {
   APP_VERSION,
   MINIMUM_SUPPORTED_VERSION,
@@ -46,7 +47,11 @@ test('el aviso de versión solo se añade a HTML cuando está habilitado', async
     headers: { 'Content-Type': 'text/html; charset=utf-8' }
   });
   const withNotice = await injectAppUpdateNotice(html, true);
-  assert.match(await withNotice.text(), /oceanhub-version-monitor/);
+  const updatedHtml = await withNotice.text();
+  assert.match(updatedHtml, /oceanhub-version-monitor/);
+  const updaterScript = updatedHtml.match(/<script id="oceanhub-version-monitor">([\\s\\S]*?)<\\/script>/)?.[1];
+  assert.ok(updaterScript, 'el monitor debe incluir un script reconocible');
+  assert.doesNotThrow(() => new Script(updaterScript), 'el script de actualización debe ser JavaScript válido');
   const json = new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json' } });
   const unchanged = await injectAppUpdateNotice(json, true);
   assert.equal(await unchanged.text(), '{"ok":true}');
