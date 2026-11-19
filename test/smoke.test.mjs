@@ -264,3 +264,16 @@ test('private chat shows each sender avatar and name, and typing state uses the 
   assert.ok(source.includes("socialShell('Chat con ' + pub.name"));
   assert.ok(source.includes("function beat(){if(document.hidden)return;fetch('/friends/presence'"));
 });
+
+test('Worker Previews bind their own Durable Object namespace without reusing production KV', () => {
+  assert.deepEqual(production.previews?.durable_objects?.bindings, [
+    { name: 'KV_LOCKER', class_name: 'KVLocker' }
+  ]);
+  const previewKv = production.previews?.kv_namespaces || [];
+  assert.equal(previewKv.some(binding => binding.binding === 'STATS'), false);
+  assert.equal(
+    previewKv.some(binding => binding.id === production.kv_namespaces[0]?.id),
+    false,
+    'A Preview must never reuse the production STATS namespace.'
+  );
+});
