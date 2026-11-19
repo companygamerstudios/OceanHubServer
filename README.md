@@ -70,3 +70,5 @@ The integrated Ocean Suite entry point is `/ocean`. It brings together the exist
 ## OceanHub 3.0 — NEXUS
 
 The next-generation roadmap is documented in [docs/oceanhub-3-nexus.md](docs/oceanhub-3-nexus.md). It defines eight workstreams and the proposed independent OceanHub App for Windows and Android, including Ocean Glass, the planned `/download` center, signed releases, mandatory-update policy, and compatibility requirements. This is an architecture plan only; it does not mean the app installers or download route are already implemented or published.
+
+The initial read-only compatibility baseline for the app is in [docs/oceanhub-3-nexus-route-inventory.md](docs/oceanhub-3-nexus-route-inventory.md). It records the currently registered route families, aliases, auth boundaries and app integration risks. It is a static code inventory, not a production availability test.
