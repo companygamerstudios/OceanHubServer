@@ -49,7 +49,16 @@ test('el aviso de versión solo se añade a HTML cuando está habilitado', async
   const withNotice = await injectAppUpdateNotice(html, true);
   const updatedHtml = await withNotice.text();
   assert.match(updatedHtml, /oceanhub-version-monitor/);
-  const updaterScript = updatedHtml.match(/<script id="oceanhub-version-monitor">([\\s\\S]*?)<\\/script>/)?.[1];
+
+  // Extract the generated script using literal delimiters. A regex literal here
+  // previously had escaping errors and prevented the complete test file loading.
+  const scriptMarker = '<script id="oceanhub-version-monitor">';
+  const scriptStart = updatedHtml.indexOf(scriptMarker);
+  const scriptEnd = updatedHtml.indexOf('</script>', scriptStart + scriptMarker.length);
+  const updaterScript = scriptStart >= 0 && scriptEnd >= 0
+    ? updatedHtml.slice(scriptStart + scriptMarker.length, scriptEnd)
+    : null;
+
   assert.ok(updaterScript, 'el monitor debe incluir un script reconocible');
   assert.doesNotThrow(() => new Script(updaterScript), 'el script de actualización debe ser JavaScript válido');
   const json = new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json' } });
