@@ -12,14 +12,17 @@ Legend: `[x]` verified complete, `[~]` in progress, `[ ]` pending.
 - [x] Confirm Cloudflare Preview build success with the explicit production-config path.
 - [ ] Perform an external HTTP smoke test against the Preview's public download/version routes; the build produced a URL, but this runtime check is not yet verified.
 - [ ] Add broader route/method/auth regression tests for high-priority existing paths.
+- [x] Add the PR #21 CI workflow with Worker syntax, all Node regression tests and a local Wrangler dry-run; Push and Pull Request checks passed on commit `7ecf2194be03118e96a49042f5f8df7779960c35`.
 - [ ] Decide whether a dedicated non-production KV namespace and Preview-only secrets are needed before testing authenticated feature routes.
 
 ## W1 — Everywhere
 - [x] Implement initial PWA download center, manifest, icon, service worker and public version endpoint on PR #19.
 - [x] Implement initial HTML version monitor for authenticated pages.
-- [ ] Add robust update policy fields and failure/outage behavior.
+- [~] Add robust update policy fields and failure/outage behavior: PR #21 now compares SemVer/prerelease and minimum-supported versions, distinguishes current/optional/required, and preserves the last valid public policy during network failure. Artifact allow-list, hash/signature verification, and real installer/update flows remain pending.
 - [ ] Test installation on supported Edge/Chrome desktop and Android Chrome.
-- [x] Scaffold a separate Tauri 2 application under `apps/oceanhub-app/` with a responsive Ocean Glass frontend (PR #21).
+- [x] Scaffold a separate Tauri 2 application under `apps/oceanhub-app/` with a responsive Ocean Glass TypeScript/Vite frontend (PR #21; no React dependency in this initial shell).
+- [x] Connect the shell to the public version manifest using a credentials-omitted request, metadata-only local cache and strict CORS allow-list for the Tauri and local Vite origins (PR #21).
+- [x] Pass app frontend build, Worker syntax, repository regression tests and local Wrangler dry-run in both Push and Pull Request checks (commit `7ecf2194be03118e96a49042f5f8df7779960c35`).
 - [ ] Run native Tauri packaging builds for Windows and Android; the current green CI only validates TypeScript/Vite frontend output.
 - [ ] Prove app authentication, 2FA, logout and session revocation.
 - [ ] Configure signing-key custody outside repository/Cloudflare source config.
@@ -80,5 +83,5 @@ Legend: `[x]` verified complete, `[~]` in progress, `[ ]` pending.
 ## Latest app-shell increment
 - [x] PR #21 adds the independent Tauri 2 shell, desktop/Android configuration, minimal capability set and responsive Ocean Glass prototype.
 - [x] GitHub Action `OceanHub App shell quality` passed the frontend type-check and Vite build on commit `09aebe5e212e73843bcd16b90d3cc04359b0043c`.
-- [ ] Confirm the Cloudflare branch Preview build for PR #21. It is a Worker preview only; the native shell is validated by its separate frontend workflow.
+- [ ] Confirm the latest Cloudflare branch Preview build for PR #21 and perform external HTTP smoke tests. A Worker Preview is not the native shell; the separate frontend and Worker CI jobs have passed.
 - [ ] Native Windows/Android builds, package identity confirmation, authentication PoC, signed packages and update verification remain pending.

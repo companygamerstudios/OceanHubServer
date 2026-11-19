@@ -24,7 +24,7 @@ Deliver vertical slices through feature branches and draft Pull Requests. Each s
 - Do not create a second Worker or require R2.
 - Use the existing KV/DO architecture for current web features. Any test/Preview data resource must be separate from production; never point a PR Preview at production KV.
 - Use the current code's module format and pinned Node/Wrangler versions. Do not upgrade dependencies incidentally.
-- The independent app proposal is Tauri 2 with a packaged Ocean Glass UI. A React + TypeScript + Vite frontend is the proposed scaffold, subject to a small compatibility proof before adding dependencies.
+- The independent app uses Tauri 2 with a packaged Ocean Glass UI. The first validated frontend scaffold is TypeScript + Vite (no React dependency in this shell); future framework changes require a separate compatibility reason.
 - The native app consumes explicit, versioned JSON contracts under `/api/v1/app/*` when existing APIs are not suitable. It must not scrape HTML pages as APIs.
 - Reuse the existing identity, 2FA and authorization logic where safe. Prove mobile/WebView sign-in, callback, refresh, session revocation and secure storage before enabling sensitive native flows.
 - Windows packages need a verified signing/update chain. Android APKs keep the same package identity and signing certificate; Android's system installer performs the final user-confirmed install.
@@ -37,7 +37,7 @@ Deliver vertical slices through feature branches and draft Pull Requests. Each s
 
 ### W0 — Safe foundations and release engineering
 **Purpose:** make branch validation reliable before product changes.
-- [ ] Fix and pass existing CI failures without changing production behavior.
+- [x] Fix the initial app-shell CI failure and pass syntax, regression tests, TypeScript/Vite build and local Wrangler dry-run on PR #21 without changing production behavior.
 - [ ] Establish safe Worker Preview configuration; use isolated Durable Object state and never attach the production `STATS` KV namespace to PR Previews.
 - [ ] Document which public Preview routes can be tested without account data and which require a dedicated non-production data namespace/secrets.
 - [ ] Record a route-compatibility snapshot and smoke tests for critical existing route families.
@@ -48,7 +48,7 @@ Deliver vertical slices through feature branches and draft Pull Requests. Each s
 ### W1 — OceanHub Everywhere (PWA and native app)
 - [ ] Stabilize `/download`, manifest, icon, Service Worker and public version manifest.
 - [ ] Test PWA installation on current supported Windows browsers and Android Chrome.
-- [ ] Harden update policy: SemVer, minimum supported version, optional/mandatory update, outage/retry handling, allowed official artifact hosts, hash/signature verification.
+- [~] Implement the first native-client update-policy slice: SemVer/prerelease comparison, minimum-version decision, cached public policy and offline fallback; allowed artifact hosts, hash/signature verification and the native install/retry flow remain pending.
 - [ ] Scaffold a separate Tauri 2 client with its own Ocean Glass UI and tests; keep web UI/routes untouched.
 - [ ] Define and test the mobile authentication proof-of-concept before consuming protected APIs.
 - [ ] Produce and sign Windows installer and Android APK in CI only after signing-key custody is configured.
@@ -123,7 +123,7 @@ Deliver vertical slices through feature branches and draft Pull Requests. Each s
 
 1. **Download/Preview validation:** repair PR #19's Wrangler Preview configuration without attaching production KV. Test only public download/version routes first.
 2. **App contract baseline:** specify auth proof-of-concept and minimal health/version/session contracts; no password/token storage design is assumed until tested.
-3. **Tauri proof:** add a minimal packaged shell and one public version/status screen; run Windows/Android build checks before migrating product features.
+3. **Tauri proof:** the shell and public version/status screen are implemented in PR #21; the frontend build and Worker regression/dry-run gates pass. Native Windows/Android packaging checks and mobile authentication remain pending.
 4. **First product slice:** begin Social/Creator after contracts and data model review, then Air Flow, Market, Command, and Home in dependency order.
 
 ## 5. Definition of done for each PR
