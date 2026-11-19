@@ -65,3 +65,8 @@ Before production release, manually complete and record: rotate/rebind admin TOT
 ## OceanHub Platform Suite
 
 The integrated Ocean Suite entry point is `/ocean`. It brings together the existing community, notifications, events, XP, creator and Air Flow modules, and adds a Command Center, feature controls, private support tickets, a moderated seller catalogue, account session protection, reputation/achievements, a Developer Hub and a Launcher. See [docs/ocean-suite.md](docs/ocean-suite.md) for routes, feature mapping, OceanHub Verified (blue public-figure and yellow company/affiliation badges), and deliberate payment/backup safety limits. New changes are proposed on a feature branch and must pass the quality workflow before merging.
+
+
+## OceanHub 3.0 — NEXUS
+
+The next-generation roadmap is documented in [docs/oceanhub-3-nexus.md](docs/oceanhub-3-nexus.md). It defines eight workstreams and the proposed independent OceanHub App for Windows and Android, including Ocean Glass, the planned `/download` center, signed releases, mandatory-update policy, and compatibility requirements. This is an architecture plan only; it does not mean the app installers or download route are already implemented or published.
