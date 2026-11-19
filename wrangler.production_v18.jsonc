@@ -51,5 +51,15 @@
       "GOOGLE_CLIENT_SECRET",
       "DISCORD_CLIENT_SECRET"
     ]
+  },
+  "previews": {
+    "durable_objects": {
+      "bindings": [
+        {
+          "name": "KV_LOCKER",
+          "class_name": "KVLocker"
+        }
+      ]
+    }
   }
 }
