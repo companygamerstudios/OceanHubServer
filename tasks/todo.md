@@ -8,10 +8,10 @@ Legend: `[x]` verified complete, `[~]` in progress, `[ ]` pending.
 - [x] Add seven functional specs and capability/dependency map to PR #20.
 - [x] Fix the regex syntax issue in `test/download-center.test.mjs` on PR #19.
 - [x] Verify GitHub Quality gates on the corrected PR #19 commit.
-- [ ] Correct Cloudflare Preview config without production KV reuse.
-- [ ] Confirm a successful Cloudflare Preview build and exercise the public download/version routes.
+- [~] Add a Preview configuration with only a per-Preview Durable Object binding; keep the production STATS KV unbound.
+- [ ] Confirm Cloudflare Preview build success and exercise the public download/version routes.
 - [ ] Add broader route/method/auth regression tests for high-priority existing paths.
-- [ ] Decide whether a dedicated non-production KV namespace and Preview secrets are needed for authenticated feature testing.
+- [ ] Decide whether a dedicated non-production KV namespace and Preview-only secrets are needed before testing authenticated feature routes.
 
 ## W1 — Everywhere
 - [x] Implement initial PWA download center, manifest, icon, service worker and public version endpoint on PR #19.
