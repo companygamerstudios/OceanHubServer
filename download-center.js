@@ -91,7 +91,7 @@ const PAGE = [
 export async function handleDownloadCenterRoute(request) {
   const path = new URL(request.url).pathname;
   if (!["/download", "/api/app/version", "/app.webmanifest", "/sw.js", "/ocean-icon.svg"].includes(path)) return null;
-  if (request.method !== "GET" && request.method !== "HEAD") {
+  if (request.method !== "GET") {
     return new Response("Method Not Allowed", { status: 405, headers: { "Allow": "GET, HEAD", "Cache-Control": "no-store" } });
   }
   if (path === "/api/app/version") return makeResponse(JSON.stringify(getAppVersionPayload()), "application/json; charset=utf-8");
@@ -111,7 +111,7 @@ export async function injectAppUpdateNotice(responseObject, enabled = true) {
     'const build=' + JSON.stringify(APP_VERSION) + ';',
     'const style="position:fixed;z-index:2147483000;left:16px;right:16px;top:16px;margin:auto;max-width:660px;padding:16px 18px;border-radius:18px;border:1px solid rgba(84,215,255,.35);background:rgba(5,20,35,.97);box-shadow:0 18px 70px rgba(0,0,0,.48);backdrop-filter:blur(18px);color:#eaf7ff;font:14px/1.5 system-ui,sans-serif";',
     'const button="border:0;border-radius:11px;padding:10px 14px;background:linear-gradient(100deg,#0bb8f4,#1665e8);color:white;font-weight:800;cursor:pointer";',
-    'function cmp(a,b){const p=v=>{const m=String(v||"").match(/^(\\\\d+)\\\\.(\\\\d+)\\\\.(\\\\d+)(?:-([0-9A-Za-z.-]+))?$/);return m?{n:m.slice(1,4).map(Number),p:m[4]||""}:null};const x=p(a),y=p(b);if(!x||!y)return 0;for(let i=0;i<3;i++){if(x.n[i]!==y.n[i])return x.n[i]<y.n[i]?-1:1;}if(x.p===y.p)return 0;if(!x.p)return 1;if(!y.p)return -1;return x.p<y.p?-1:1;}',
+    'function cmp(a,b){const p=v=>{const m=String(v||"").match(/^(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?$/);return m?{n:m.slice(1,4).map(Number),p:m[4]||""}:null};const x=p(a),y=p(b);if(!x||!y)return 0;for(let i=0;i<3;i++){if(x.n[i]!==y.n[i])return x.n[i]<y.n[i]?-1:1;}if(x.p===y.p)return 0;if(!x.p)return 1;if(!y.p)return -1;return x.p<y.p?-1:1;}',
     'async function check(){try{const r=await fetch("/api/app/version",{cache:"no-store",headers:{"Accept":"application/json"}});if(!r.ok)return;const v=await r.json();const newer=cmp(v.version,build)>0;const required=cmp(build,v.minimumSupportedVersion)<0;if(!newer&&!required)return;if(document.getElementById("oceanhub-update-banner"))return;',
     'const box=document.createElement("section");box.id="oceanhub-update-banner";box.setAttribute("role","alertdialog");box.setAttribute("aria-live","assertive");box.style.cssText=style;',
     'const title=document.createElement("div");title.textContent="🌊 Tu versión de OceanHub quedó obsoleta";title.style.cssText="font-size:16px;font-weight:850;margin-bottom:5px";',
