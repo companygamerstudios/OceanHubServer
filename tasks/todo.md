@@ -8,8 +8,9 @@ Legend: `[x]` verified complete, `[~]` in progress, `[ ]` pending.
 - [x] Add seven functional specs and capability/dependency map to PR #20.
 - [x] Fix the regex syntax issue in `test/download-center.test.mjs` on PR #19.
 - [x] Verify GitHub Quality gates on the corrected PR #19 commit.
-- [~] Add a Preview configuration with only a per-Preview Durable Object binding; keep the production STATS KV unbound.
-- [ ] Confirm Cloudflare Preview build success and exercise the public download/version routes.
+- [x] Add a Preview configuration with only a per-Preview Durable Object binding; keep the production STATS KV unbound.
+- [x] Confirm Cloudflare Preview build success with the explicit production-config path.
+- [ ] Perform an external HTTP smoke test against the Preview's public download/version routes; the build produced a URL, but this runtime check is not yet verified.
 - [ ] Add broader route/method/auth regression tests for high-priority existing paths.
 - [ ] Decide whether a dedicated non-production KV namespace and Preview-only secrets are needed before testing authenticated feature routes.
 
