@@ -87,3 +87,12 @@ El mapa aprobado y las siete especificaciones funcionales están en `spec/`:
 - [OceanHub Everywhere](spec/SPEC-everywhere.md)
 
 Estos documentos establecen objetivos, límites, pruebas y criterios de aceptación. Todavía no significan que las siete áreas estén implementadas. La planificación detallada y el desarrollo de cada módulo empezarán después de revisar y aprobar estas especificaciones.
+
+## OceanHub 3.0 — implementación
+
+El plan de ejecución aprobado y el checklist operativo están en:
+
+- [Plan maestro de implementación](tasks/plan.md)
+- [Checklist de tareas](tasks/todo.md)
+
+Se trabajará mediante incrementos pequeños, ramas y Pull Requests. Los documentos indican explícitamente qué está implementado y qué permanece pendiente; una especificación aprobada no significa que esa función ya exista.
