@@ -1,4 +1,5 @@
 import "./styles.css";
+import { APP_CLIENT_VERSION, checkVersionPolicy } from "./version-policy.js";
 
 type ViewId = "home" | "social" | "air-flow" | "market" | "creator" | "command";
 
@@ -104,9 +105,12 @@ function homeMarkup(): string {
         <div class="card-topline"><span class="eyebrow">CENTRO DE ACTUALIZACIONES</span><span class="subtle-icon">↻</span></div>
         <div class="release-symbol">✧</div>
         <h2>Siempre al día.</h2>
-        <p>La verificación de versiones está prevista para detectar cuándo una versión requiere actualización.</p>
-        <div class="release-status"><span class="status-pill status-pending">Preparación</span><span class="muted">Sin instalador nativo publicado</span></div>
-        <button class="text-action" type="button" data-action="updates">Ver estado de actualizaciones <span>→</span></button>
+        <p>Consulta el manifiesto público de versiones de OceanHub. Una caída de red no convierte por sí sola una versión válida en obsoleta.</p>
+        <div class="release-status" id="releaseStatus" role="status" aria-live="polite">
+          <span class="status-pill status-pending" id="versionBadge">Comprobando</span>
+          <span class="muted" id="versionDetail">Consultando la política de versiones…</span>
+        </div>
+        <button class="text-action" type="button" data-action="updates" aria-controls="releaseStatus">Comprobar actualizaciones <span>↻</span></button>
       </article>
     </section>
 
@@ -223,6 +227,88 @@ function showToast(message: string): void {
   }, 4200);
 }
 
+type VersionCheckResult = Awaited<ReturnType<typeof checkVersionPolicy>>;
+
+let latestVersionResult: VersionCheckResult | null = null;
+let versionCheckInFlight = false;
+
+function formatCheckTime(value: string | null): string {
+  if (!value) return "hora no disponible";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString("es-DO", { dateStyle: "short", timeStyle: "short" });
+}
+
+function renderVersionResult(result: VersionCheckResult): void {
+  const badge = document.querySelector<HTMLSpanElement>("#versionBadge");
+  const detail = document.querySelector<HTMLSpanElement>("#versionDetail");
+  if (!badge || !detail) return;
+
+  const policy = result.policy;
+  if (result.connectivity === "offline") {
+    badge.className = "status-pill status-offline";
+    badge.textContent = "Sin conexión";
+    if (!policy) {
+      detail.textContent = "No se pudo verificar el servidor. Esta caída de red no marcará tu versión como obsoleta.";
+      return;
+    }
+    const cachedDecision = result.decision === "required"
+      ? `La última política válida establece como mínimo ${policy.minimumSupportedVersion}.`
+      : result.decision === "available"
+        ? `La última política válida anuncia ${policy.version} como versión más reciente.`
+        : `La última política válida confirma la versión ${policy.version}.`;
+    detail.textContent = `${cachedDecision} Última consulta: ${formatCheckTime(result.checkedAt)}. Se conserva esa política; no se fuerza una actualización por la falta de red.`;
+    return;
+  }
+
+  if (!policy) {
+    badge.className = "status-pill status-offline";
+    badge.textContent = "No verificada";
+    detail.textContent = "El servidor no entregó una política de versiones válida. Puedes volver a intentarlo.";
+    return;
+  }
+
+  if (result.decision === "required") {
+    badge.className = "status-pill status-required";
+    badge.textContent = "Actualización requerida";
+    detail.textContent = `La versión mínima admitida es ${policy.minimumSupportedVersion}; esta app es ${APP_CLIENT_VERSION}. El instalador nativo verificado todavía no está publicado en esta Preview.`;
+  } else if (result.decision === "available") {
+    badge.className = "status-pill status-available";
+    badge.textContent = "Nueva versión disponible";
+    detail.textContent = `Disponible: ${policy.version}. Tu versión sigue por encima del mínimo ${policy.minimumSupportedVersion}. Los paquetes nativos firmados siguen en preparación.`;
+  } else if (result.decision === "current") {
+    badge.className = "status-pill status-current";
+    badge.textContent = "Versión actual";
+    detail.textContent = `Instalada: ${APP_CLIENT_VERSION}. Última publicada: ${policy.version} (${policy.channel}).`;
+  } else {
+    badge.className = "status-pill status-offline";
+    badge.textContent = "No verificada";
+    detail.textContent = "No se pudo comparar la versión instalada con una política válida.";
+  }
+}
+
+async function refreshVersionStatus(): Promise<void> {
+  if (versionCheckInFlight) return;
+  versionCheckInFlight = true;
+  const button = document.querySelector<HTMLButtonElement>('[data-action="updates"]');
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Comprobando…";
+  }
+  try {
+    latestVersionResult = await checkVersionPolicy();
+    renderVersionResult(latestVersionResult);
+  } finally {
+    versionCheckInFlight = false;
+    const currentButton = document.querySelector<HTMLButtonElement>('[data-action="updates"]');
+    if (currentButton) {
+      currentButton.disabled = false;
+      currentButton.innerHTML = 'Comprobar actualizaciones <span>↻</span>';
+    }
+  }
+}
+
 function activateView(viewId: string): void {
   const view = VIEWS.find(item => item.id === viewId) ?? VIEWS[0];
   const content = document.querySelector<HTMLDivElement>("#mainContent");
@@ -231,6 +317,7 @@ function activateView(viewId: string): void {
 
   content.innerHTML = view.id === "home" ? homeMarkup() : moduleMarkup(view);
   section.textContent = view.label;
+  if (view.id === "home" && latestVersionResult) renderVersionResult(latestVersionResult);
 
   document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach(button => {
     const isActive = button.dataset.view === view.id;
@@ -257,6 +344,9 @@ document.addEventListener("click", event => {
   if (actionButton.dataset.action === "learn") {
     showToast("NEXUS se conectará a las capacidades reales de OceanHub por fases.");
   } else if (actionButton.dataset.action === "updates") {
-    showToast("Las actualizaciones nativas se activarán cuando existan paquetes firmados y verificados.");
+    void refreshVersionStatus();
   }
 });
+
+void refreshVersionStatus();
+window.addEventListener("focus", () => { void refreshVersionStatus(); });

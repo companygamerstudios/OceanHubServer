@@ -23,12 +23,15 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: asset: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
+      "csp": "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: asset: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://oceanhud.yoelenmanuelzorrilla.workers.dev"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "category": "SocialNetworking",
     "shortDescription": "La aplicación independiente de OceanHub",
     "longDescription": "OceanHub es el espacio gamer y social de COMPANY GAMER STUDIOS."

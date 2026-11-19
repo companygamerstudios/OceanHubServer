@@ -2,6 +2,13 @@ export const APP_VERSION = "3.0.0-preview.1";
 export const MINIMUM_SUPPORTED_VERSION = APP_VERSION;
 export const APP_RELEASE_CHANNEL = "preview";
 
+// Version metadata is public and read-only. Only the native app origin and
+// the fixed local Vite development origin may read it cross-origin.
+const APP_VERSION_CORS_ORIGINS = new Set([
+  "http://tauri.localhost",
+  "http://127.0.0.1:1420"
+]);
+
 export function compareVersions(left, right) {
   const parse = value => {
     const match = String(value || "").trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
@@ -91,10 +98,37 @@ const PAGE = [
 export async function handleDownloadCenterRoute(request) {
   const path = new URL(request.url).pathname;
   if (!["/download", "/api/app/version", "/app.webmanifest", "/sw.js", "/ocean-icon.svg"].includes(path)) return null;
-  if (request.method !== "GET") {
-    return new Response("Method Not Allowed", { status: 405, headers: { "Allow": "GET, HEAD", "Cache-Control": "no-store" } });
+  if (path === "/api/app/version" && request.method === "OPTIONS") {
+    const origin = request.headers.get("Origin") || "";
+    if (!APP_VERSION_CORS_ORIGINS.has(origin)) {
+      return new Response(null, { status: 403, headers: { "Cache-Control": "no-store", "Vary": "Origin" } });
+    }
+    const requestedMethod = (request.headers.get("Access-Control-Request-Method") || "GET").toUpperCase();
+    const requestedHeaders = (request.headers.get("Access-Control-Request-Headers") || "")
+      .split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
+    if (requestedMethod !== "GET" || requestedHeaders.some(header => header !== "accept")) {
+      return new Response(null, { status: 403, headers: { "Cache-Control": "no-store", "Vary": "Origin" } });
+    }
+    return new Response(null, { status: 204, headers: {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Accept",
+      "Access-Control-Max-Age": "600",
+      "Vary": "Origin",
+      "Cache-Control": "no-store"
+    }});
   }
-  if (path === "/api/app/version") return makeResponse(JSON.stringify(getAppVersionPayload()), "application/json; charset=utf-8");
+  if (request.method !== "GET") {
+    const allow = path === "/api/app/version" ? "GET, OPTIONS" : "GET";
+    return new Response("Method Not Allowed", { status: 405, headers: { "Allow": allow, "Cache-Control": "no-store" } });
+  }
+  if (path === "/api/app/version") {
+    const origin = request.headers.get("Origin") || "";
+    const corsHeaders = APP_VERSION_CORS_ORIGINS.has(origin)
+      ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" }
+      : { "Vary": "Origin" };
+    return makeResponse(JSON.stringify(getAppVersionPayload()), "application/json; charset=utf-8", corsHeaders);
+  }
   if (path === "/app.webmanifest") return makeResponse(MANIFEST, "application/manifest+json; charset=utf-8");
   if (path === "/sw.js") return makeResponse(SERVICE_WORKER, "application/javascript; charset=utf-8", { "Service-Worker-Allowed": "/", "Cache-Control": "no-cache" });
   if (path === "/ocean-icon.svg") return makeResponse(ICON, "image/svg+xml; charset=utf-8", { "Cache-Control": "public, max-age=86400" });

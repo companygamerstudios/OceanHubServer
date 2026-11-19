@@ -65,3 +65,50 @@ test('el aviso de versión solo se añade a HTML cuando está habilitado', async
   const unchanged = await injectAppUpdateNotice(json, true);
   assert.equal(await unchanged.text(), '{"ok":true}');
 });
+
+test('la API de versión permite CORS solo al origen nativo Tauri y al Vite local', async () => {
+  const native = await handleDownloadCenterRoute(new Request('https://example.test/api/app/version', {
+    headers: { Origin: 'http://tauri.localhost' }
+  }));
+  assert.equal(native.status, 200);
+  assert.equal(native.headers.get('Access-Control-Allow-Origin'), 'http://tauri.localhost');
+  assert.equal(native.headers.get('Access-Control-Allow-Credentials'), null);
+  assert.equal(native.headers.get('Vary'), 'Origin');
+
+  const localDev = await handleDownloadCenterRoute(new Request('https://example.test/api/app/version', {
+    headers: { Origin: 'http://127.0.0.1:1420' }
+  }));
+  assert.equal(localDev.headers.get('Access-Control-Allow-Origin'), 'http://127.0.0.1:1420');
+
+  const untrusted = await handleDownloadCenterRoute(new Request('https://example.test/api/app/version', {
+    headers: { Origin: 'https://untrusted.example' }
+  }));
+  assert.equal(untrusted.status, 200);
+  assert.equal(untrusted.headers.get('Access-Control-Allow-Origin'), null);
+});
+
+test('la preflight de la API de versión limita el origen, el método y los encabezados', async () => {
+  const allowed = await handleDownloadCenterRoute(new Request('https://example.test/api/app/version', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'http://tauri.localhost',
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'accept'
+    }
+  }));
+  assert.equal(allowed.status, 204);
+  assert.equal(allowed.headers.get('Access-Control-Allow-Origin'), 'http://tauri.localhost');
+  assert.equal(allowed.headers.get('Access-Control-Allow-Methods'), 'GET, OPTIONS');
+
+  const deniedOrigin = await handleDownloadCenterRoute(new Request('https://example.test/api/app/version', {
+    method: 'OPTIONS',
+    headers: { Origin: 'https://untrusted.example', 'Access-Control-Request-Method': 'GET' }
+  }));
+  assert.equal(deniedOrigin.status, 403);
+
+  const deniedMethod = await handleDownloadCenterRoute(new Request('https://example.test/api/app/version', {
+    method: 'OPTIONS',
+    headers: { Origin: 'http://tauri.localhost', 'Access-Control-Request-Method': 'POST' }
+  }));
+  assert.equal(deniedMethod.status, 403);
+});
