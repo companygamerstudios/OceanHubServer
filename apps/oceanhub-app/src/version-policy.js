@@ -2,7 +2,7 @@ export const APP_CLIENT_VERSION = "3.0.0-preview.1";
 export const VERSION_POLICY_CACHE_KEY = "oceanhub.public-version-policy.v1";
 export const VERSION_POLICY_ENDPOINT = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/api/app/version";
 
-const VERSION_PATTERN = /^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$/;
+const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function parseVersion(value) {
   if (typeof value !== "string") return null;
@@ -15,11 +15,11 @@ function parseVersion(value) {
 }
 
 function compareIdentifiers(left, right) {
-  const leftNumeric = /^\\d+$/.test(left);
-  const rightNumeric = /^\\d+$/.test(right);
+  const leftNumeric = /^\d+$/.test(left);
+  const rightNumeric = /^\d+$/.test(right);
   if (leftNumeric && rightNumeric) {
-    const a = left.replace(/^0+(?=\\d)/, "");
-    const b = right.replace(/^0+(?=\\d)/, "");
+    const a = left.replace(/^0+(?=\d)/, "");
+    const b = right.replace(/^0+(?=\d)/, "");
     if (a.length !== b.length) return a.length < b.length ? -1 : 1;
     return a === b ? 0 : a < b ? -1 : 1;
   }
