@@ -20,6 +20,13 @@ Este documento define la incorporación progresiva de las siete áreas solicitad
 6. **Ocean Creator Ecosystem** — Perfiles y páginas de proyecto, publicaciones de cambios, descubrimiento e integraciones de Creator Studio.
 7. **OceanHub Everywhere** — Interfaz responsive, accesibilidad, rendimiento, PWA y distribución de aplicaciones.
 
+
+## Entorno de Preview (sin datos de producción)
+
+La configuración `previews` crea el binding SQLite Durable Object `KV_LOCKER` en el ámbito aislado que Cloudflare provisiona para cada Preview. No declara `STATS` ni copia el ID de la KV de producción. Esto permite validar los endpoints públicos de instalación/versiones (`/download`, `/app.webmanifest`, `/sw.js`, `/ocean-icon.svg`, `/api/app/version`) sin conectar esa Preview a los datos de cuentas o compras.
+
+Como consecuencia intencional, las páginas autenticadas que dependen de `STATS` no están habilitadas para esta primera Preview. Antes de probar funcionalidades privadas se debe aprovisionar una KV no productiva y configurar únicamente secretos de prueba; nunca se añadirá la KV productiva a `previews`. El binding Durable Object de cada Preview es independiente; no comparte sesiones ni bloqueos con producción.
+
 ## OceanHub Everywhere y /download
 
 - /download es el centro oficial de instalación.
