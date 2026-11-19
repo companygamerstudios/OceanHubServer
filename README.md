@@ -72,3 +72,18 @@ The integrated Ocean Suite entry point is `/ocean`. It brings together the exist
 The next-generation roadmap is documented in [docs/oceanhub-3-nexus.md](docs/oceanhub-3-nexus.md). It defines eight workstreams and the proposed independent OceanHub App for Windows and Android, including Ocean Glass, the planned `/download` center, signed releases, mandatory-update policy, and compatibility requirements. This is an architecture plan only; it does not mean the app installers or download route are already implemented or published.
 
 The initial read-only compatibility baseline for the app is in [docs/oceanhub-3-nexus-route-inventory.md](docs/oceanhub-3-nexus-route-inventory.md). It records the currently registered route families, aliases, auth boundaries and app integration risks. It is a static code inventory, not a production availability test.
+
+## OceanHub 3.0 — especificaciones por módulo
+
+El mapa aprobado y las siete especificaciones funcionales están en `spec/`:
+
+- [Mapa de capacidades y dependencias](spec/capability-map.md)
+- [Home 3.0](spec/SPEC-home-3.md)
+- [Social Evolution](spec/SPEC-social-evolution.md)
+- [Air Flow 3.0](spec/SPEC-air-flow-3.md)
+- [Ocean Market](spec/SPEC-ocean-market.md)
+- [Command 2.0](spec/SPEC-command-2.md)
+- [Creator Ecosystem](spec/SPEC-creator-ecosystem.md)
+- [OceanHub Everywhere](spec/SPEC-everywhere.md)
+
+Estos documentos establecen objetivos, límites, pruebas y criterios de aceptación. Todavía no significan que las siete áreas estén implementadas. La planificación detallada y el desarrollo de cada módulo empezarán después de revisar y aprobar estas especificaciones.
