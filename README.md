@@ -66,7 +66,7 @@ The integrated Ocean Suite entry point is `/ocean`. It brings together the exist
 
 ## Ejecución de cuatro fases activas
 
-La rama de trabajo `feat/oceanhub-five-phase-execution` recoge cuatro áreas activas: seguridad y estabilidad, pagos y vendedores, experiencia social y OceanHub 3.0. **No requiere bucket ni almacenamiento Cloudflare R2.** La exportación de datos de cuenta `GET /account/export` se conserva, pero la función de backup completo queda aplazada. Consulta `docs/FIVE_PHASE_EXECUTION.md` para el alcance y los contratos de compatibilidad. `docs/BACKUP_RUNBOOK.md` se mantiene únicamente como referencia futura; no sigas sus pasos para probar esta entrega. Los cambios todavía no se han desplegado en producción.
+La rama de trabajo `feat/oceanhub-five-phase-execution` recoge cuatro áreas activas: seguridad y estabilidad, pagos y vendedores, experiencia social y OceanHub 3.0. **No requiere bucket ni almacenamiento Cloudflare R2.** La exportación de datos de cuenta `GET /account/export` se conserva, pero la función de backup completo queda aplazada. Las apps Tauri para Windows y Android cargan la **web completa del Worker** en sus WebViews, sin módulos de demostración ni backend paralelo; el responsive real debe validarse por ruta y dispositivo. Consulta `docs/FIVE_PHASE_EXECUTION.md` y `apps/oceanhub-app/README.md` para arquitectura, pruebas y límites. `docs/BACKUP_RUNBOOK.md` se mantiene únicamente como referencia futura; no sigas sus pasos para probar esta entrega. Los cambios todavía no se han desplegado en producción.
 
 ### Pruebas de compatibilidad del cliente
 
