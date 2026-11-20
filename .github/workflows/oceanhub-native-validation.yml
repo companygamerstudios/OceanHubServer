@@ -2,7 +2,7 @@ name: OceanHub Android APK
 
 on:
   push:
-    branches: ["main", "feat/oceanhub-five-phase-execution"]
+    branches: ["main", "feat/oceanhub-five-phase-execution", "feat/oceanhub-push-notifications"]
     paths:
       - "apps/oceanhub-app/**"
       - ".github/workflows/oceanhub-native-validation.yml"
@@ -73,6 +73,53 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Initialize Tauri Android project
         run: npm run tauri:android:init -- --ci
+      - name: Configure Firebase Android FCM
+        shell: bash
+        env:
+          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
+            echo "::warning::FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 is not configured; Android FCM runtime configuration is skipped for this validation build."
+            exit 0
+          fi
+          mkdir -p src-tauri/gen/android/app
+          printf '%s' "$FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > src-tauri/gen/android/app/google-services.json
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+
+          const configPath = 'src-tauri/gen/android/app/google-services.json';
+          const config = JSON.parse(await readFile(configPath, 'utf8'));
+          if (config.project_info?.project_id !== 'oceanhub-91e40') {
+            throw new Error('Firebase Android file belongs to a different Firebase project.');
+          }
+          const expectedPackage = 'com.companygamerstudios.oceanhub';
+          if (!Array.isArray(config.client) || !config.client.some(
+            client => client.client_info?.android_client_info?.package_name === expectedPackage
+          )) {
+            throw new Error('Firebase Android file does not match the OceanHub application id.');
+          }
+
+          async function ensurePlugin(file, declaration) {
+            let source = await readFile(file, 'utf8');
+            if (source.includes('com.google.gms.google-services')) return;
+            const match = source.match(/plugins\\s*\\{/);
+            if (!match) throw new Error('Missing Gradle plugins block in ' + file);
+            const insertAt = match.index + match[0].length;
+            source = source.slice(0, insertAt) + '\\n    ' + declaration + source.slice(insertAt);
+            await writeFile(file, source);
+          }
+
+          await ensurePlugin(
+            'src-tauri/gen/android/build.gradle.kts',
+            'id("com.google.gms.google-services") version "4.6.0" apply false'
+          );
+          await ensurePlugin(
+            'src-tauri/gen/android/app/build.gradle.kts',
+            'id("com.google.gms.google-services")'
+          );
+          console.log('Firebase Android configuration validated and attached to the generated app.');
+          NODE
       - name: Configure Maven repositories for Android Gradle and buildSrc
         shell: bash
         run: |
