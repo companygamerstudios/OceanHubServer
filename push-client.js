@@ -41,6 +41,74 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   function setLocalFlag(name, value) {
     try { if (value) localStorage.setItem(name, "1"); else localStorage.removeItem(name); } catch (_) {}
   }
+
+  async function currentDeviceRegistration() {
+    if (androidApp && localFlag("oh_push_android_enabled")) {
+      var androidToken = await api("plugin:fcm|get_token");
+      return androidToken && androidToken.token ? { platform: "android", token: androidToken.token } : null;
+    }
+    if (windowsApp && localFlag("oh_push_windows_enabled")) {
+      return { platform: "windows", token: getWindowsDeviceToken() };
+    }
+    if (!isTauri && localFlag("oh_push_web_enabled") &&
+        typeof Notification !== "undefined" && Notification.permission === "granted" &&
+        "serviceWorker" in navigator) {
+      var config = await requestJson("/api/push/config");
+      if (!config.webEnabled || !config.firebaseConfig || !config.vapidKey) return null;
+      var registration = await navigator.serviceWorker.getRegistration("/");
+      if (!registration) return null;
+      var appModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js");
+      var messagingModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-messaging.js");
+      if (!await messagingModule.isSupported()) return null;
+      var app = appModule.getApps().find(function (entry) { return entry.name === "oceanhub-web-push"; }) ||
+        appModule.initializeApp(config.firebaseConfig, "oceanhub-web-push");
+      var messaging = messagingModule.getMessaging(app);
+      var token = await messagingModule.getToken(messaging, {
+        vapidKey: config.vapidKey,
+        serviceWorkerRegistration: registration
+      });
+      return token ? { platform: "web", token: token } : null;
+    }
+    return null;
+  }
+
+  function bindLogoutCleanup() {
+    document.addEventListener("click", function (event) {
+      var target = event.target;
+      if (target && target.nodeType === 3) target = target.parentElement;
+      var link = target && target.closest ? target.closest('a[href]') : null;
+      if (!link) return;
+      var destination;
+      try { destination = new URL(link.href, location.href); } catch (_) { return; }
+      if (destination.origin !== location.origin || destination.pathname !== "/logout") return;
+      if (link.dataset.ohPushLogoutPending === "1") {
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      link.dataset.ohPushLogoutPending = "1";
+      var cleanup = (async function () {
+        try {
+          var device = await currentDeviceRegistration();
+          if (!device) return;
+          await fetch("/api/push/unregister", {
+            method: "POST",
+            credentials: "same-origin",
+            cache: "no-store",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(device)
+          });
+        } catch (_) {
+          // Logout must remain available even when a push provider or the network fails.
+        }
+      })();
+      var timeout = new Promise(function (resolve) { setTimeout(resolve, 1500); });
+      Promise.race([cleanup, timeout]).finally(function () {
+        location.assign(destination.href);
+      });
+    }, true);
+  }
   function getWindowsDeviceToken() {
     try {
       var value = localStorage.getItem("oh_push_windows_device_id");
@@ -266,6 +334,7 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   }
 
   function boot() {
+    bindLogoutCleanup();
     bindControls();
     if (androidApp && localFlag("oh_push_android_enabled")) {
       api("plugin:fcm|get_token").then(function (result) {
