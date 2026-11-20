@@ -9,6 +9,7 @@ import {
   encryptPushToken,
   handleFirebaseMessagingServiceWorker,
   handlePushApi,
+  handlePushSocket,
   validatePushRegistration
 } from "../push-notifications.js";
 
@@ -185,6 +186,41 @@ test("Firebase service worker is same-origin scoped and uses current SDK compat 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Service-Worker-Allowed"), "/");
   assert.match(await response.text(), /firebasejs\/13\.4\.0\/firebase-messaging-compat\.js/);
+});
+
+
+test("Windows push socket rejects missing or cross-origin Origin headers", async () => {
+  const crossOrigin = await handlePushSocket(
+    {},
+    makeRequest("/api/push/socket", { origin: "https://attacker.invalid" }),
+    EMAIL
+  );
+  assert.equal(crossOrigin.status, 403);
+
+  const missingOrigin = await handlePushSocket(
+    {},
+    makeRequest("/api/push/socket", { origin: null }),
+    EMAIL
+  );
+  assert.equal(missingOrigin.status, 403);
+});
+
+test("Web push config fails closed for a different Firebase project", async () => {
+  const response = await handlePushApi({
+    STATS: createKV(),
+    FIREBASE_WEB_CONFIG_JSON: JSON.stringify({
+      apiKey: "public-api-key",
+      authDomain: "another-project.firebaseapp.com",
+      projectId: "another-project",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:abcdef"
+    }),
+    FIREBASE_WEB_VAPID_KEY: "public-vapid-key"
+  }, makeRequest("/api/push/config"), EMAIL);
+  const body = await response.json();
+  assert.equal(body.webEnabled, false);
+  assert.equal(body.firebaseConfig, null);
+  assert.equal(body.vapidKey, null);
 });
 
 test("missing Firebase web config fails closed without returning a broken service worker", async () => {
