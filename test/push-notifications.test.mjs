@@ -11,6 +11,7 @@ import {
   handlePushApi,
   handlePushSocket,
   sanitizePushNotification,
+  sendPushToUser,
   validatePushRegistration
 } from "../push-notifications.js";
 
@@ -255,4 +256,56 @@ test("Web push config fails closed for a different Firebase project", async () =
 test("missing Firebase web config fails closed without returning a broken service worker", async () => {
   const response = handleFirebaseMessagingServiceWorker({});
   assert.equal(response.status, 503);
+});
+
+
+test("Windows push dispatch publishes a sanitized event to the account Durable Object", async () => {
+  const STATS = createKV();
+  const calls = [];
+  const env = {
+    STATS,
+    PUSH_TOKEN_ENCRYPTION_SECRET: ENCRYPTION_SECRET,
+    KV_LOCKER: {
+      idFromName(name) { return name; },
+      get(id) {
+        return {
+          async fetch(input, init) {
+            calls.push({ id, url: String(input), init });
+            return Response.json({ ok: true, delivered: 1 });
+          }
+        };
+      }
+    }
+  };
+  await handlePushApi(
+    env,
+    makeRequest("/api/push/register", {
+      method: "POST",
+      body: { platform: "windows", token: "c".repeat(64) }
+    }),
+    EMAIL
+  );
+
+  await sendPushToUser(env, EMAIL, {
+    type: "dm",
+    title: "Mensaje de @yoel",
+    body: "este texto privado no debe salir al aviso",
+    href: "/messages/yoel"
+  });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /realtime\/push\/publish$/);
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.title, "Mensaje de @yoel");
+  assert.equal(payload.body, "Tienes un nuevo mensaje privado. Abre OceanHub para leerlo.");
+  assert.equal(payload.href, "/messages/yoel");
+});
+
+test("the Worker wires persisted social and private-message notifications into push dispatch", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../OceanHub_SECURITY_PATCHED_FINAL_v18.js", import.meta.url), "utf8");
+  assert.match(source, /import \{ handlePushApi, handlePushSocket, handleFirebaseMessagingServiceWorker, sendPushToUser \} from '\.\/push-notifications\.js'/);
+  assert.match(source, /if \(path\.startsWith\('\/api\/push\/'\)\)/);
+  assert.match(source, /await sendPushToUser\(env, toEmail, item, withKVLock\)/);
+  assert.match(source, /type: 'dm'[\s\S]{0,500}socialPushNotif\(env, peer\.email/);
 });
