@@ -8,6 +8,7 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   var socket = null;
   var reconnectTimer = null;
   var retry = 0;
+  var webPushInitialized = false;
 
   function byId(id) { return document.getElementById(id); }
   function status(message, isError) {
@@ -72,31 +73,36 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
     if (!("serviceWorker" in navigator) || !("Notification" in window)) {
       throw new Error("Este navegador no admite notificaciones Web Push.");
     }
+    // Ask permission immediately within the user's click gesture, before any network await.
+    var permission = Notification.permission;
+    if (permission !== "granted") permission = await Notification.requestPermission();
+    if (permission !== "granted") throw new Error("No se concedió el permiso de notificaciones.");
     var config = await requestJson("/api/push/config");
     if (!config.webEnabled || !config.firebaseConfig || !config.vapidKey) {
       throw new Error("La configuración Web Push de Firebase todavía no está terminada.");
     }
-    var permission = Notification.permission;
-    if (permission !== "granted") permission = await Notification.requestPermission();
-    if (permission !== "granted") throw new Error("No se concedió el permiso de notificaciones.");
     var registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
     var appModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js");
     var messagingModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-messaging.js");
     if (!await messagingModule.isSupported()) throw new Error("Firebase Messaging no es compatible con este navegador.");
-    var app = appModule.initializeApp(config.firebaseConfig, "oceanhub-web-push");
+    var app = appModule.getApps().find(function (entry) { return entry.name === "oceanhub-web-push"; }) ||
+      appModule.initializeApp(config.firebaseConfig, "oceanhub-web-push");
     var messaging = messagingModule.getMessaging(app);
     var token = await messagingModule.getToken(messaging, {
       vapidKey: config.vapidKey,
       serviceWorkerRegistration: registration
     });
     await registerToken("web", token);
-    messagingModule.onMessage(messaging, function (payload) {
-      if (document.visibilityState !== "visible") return;
-      var notification = payload.notification || payload.data || {};
-      var title = String(notification.title || "OceanHub");
-      var body = String(notification.body || "Tienes una nueva notificación");
-      if (Notification.permission === "granted") new Notification(title, { body: body, icon: "/favicon.ico" });
-    });
+    if (!webPushInitialized) {
+      messagingModule.onMessage(messaging, function (payload) {
+        if (document.visibilityState !== "visible") return;
+        var notification = payload.notification || payload.data || {};
+        var title = String(notification.title || "OceanHub");
+        var body = String(notification.body || "Tienes una nueva notificación");
+        if (Notification.permission === "granted") new Notification(title, { body: body, icon: "/favicon.ico" });
+      });
+      webPushInitialized = true;
+    }
     setLocalFlag("oh_push_web_enabled", true);
     status("Notificaciones Web Push activadas en este navegador.");
   }
@@ -145,7 +151,8 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
         var config = await requestJson("/api/push/config");
         var appModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js");
         var messagingModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-messaging.js");
-        var app = appModule.initializeApp(config.firebaseConfig, "oceanhub-web-push");
+        var app = appModule.getApps().find(function (entry) { return entry.name === "oceanhub-web-push"; }) ||
+          appModule.initializeApp(config.firebaseConfig, "oceanhub-web-push");
         var messaging = messagingModule.getMessaging(app);
         var token = await messagingModule.getToken(messaging, { vapidKey: config.vapidKey });
         await post("/api/push/unregister", { platform: "web", token: token });
