@@ -8,13 +8,20 @@ const production = JSON.parse(await readFile(new URL('../wrangler.production_v18
 const local = JSON.parse(await readFile(new URL('../wrangler.local.jsonc', import.meta.url), 'utf8'));
 const nativeWorkflow = await readFile(new URL('../.github/workflows/oceanhub-native-validation.yml', import.meta.url), 'utf8');
 
-test('native build CI patches Gradle repositories and creates a Windows NSIS test installer', () => {
+test('native build CI creates and validates only a directly downloadable Android APK', () => {
   assert.ok(nativeWorkflow.includes('Configure public repositories for generated Android buildSrc'));
   assert.ok(nativeWorkflow.includes('mavenCentral()'));
   assert.ok(nativeWorkflow.includes('google()'));
-  assert.ok(nativeWorkflow.includes('--bundles nsis'));
-  assert.equal(nativeWorkflow.includes('bundle/msi/'), false);
-  assert.ok(nativeWorkflow.includes('Verify APK output exists'));
+  assert.ok(nativeWorkflow.includes('Build installable Android arm64 APK'));
+  assert.ok(nativeWorkflow.includes("com.companygamerstudios.oceanhub"));
+  assert.ok(nativeWorkflow.includes("application-label:'OceanHub'"));
+  assert.ok(nativeWorkflow.includes('launchable-activity'));
+  assert.ok(nativeWorkflow.includes('ic_launcher'));
+  assert.ok(nativeWorkflow.includes('actions/upload-artifact@v7'));
+  assert.ok(nativeWorkflow.includes('archive: false'));
+  assert.ok(nativeWorkflow.includes('OceanHub-Android-arm64-preview.apk'));
+  assert.equal(nativeWorkflow.includes('windows-test-installers'), false);
+  assert.equal(nativeWorkflow.includes('--bundles nsis'), false);
 });
 
 test('PayPal mode accepts only explicit sandbox/live values', () => {
