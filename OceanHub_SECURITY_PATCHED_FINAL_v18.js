@@ -10943,7 +10943,7 @@ async function socialPushNotif(env, toEmail, notif) {
     list.unshift(item);
     await socialSaveNotifs(env, toEmail, list);
     // Persisted in-app notifications remain authoritative; push delivery is best-effort.
-    try { await sendPushToUser(env, toEmail, item); }
+    try { await sendPushToUser(env, toEmail, item, withKVLock); }
     catch (error) { console.warn('Push notification delivery skipped:', error?.message || error); }
     return item;
 }
@@ -11228,7 +11228,7 @@ export async function workerFetch(request, env) {
             if (!(await checkActionRateLimit(env, 'push-api:' + path, auth.user.email, 30, 3600))) {
                 return jsonResponse({ error: 'Demasiadas solicitudes de notificaciones' }, 429);
             }
-            return await handlePushApi(env, request, auth.user.email);
+            return await handlePushApi(env, request, auth.user.email, withKVLock);
         }
 
         if (path === '/ocean' || path.startsWith('/ocean/') || path.startsWith('/admin/ocean-')) {
