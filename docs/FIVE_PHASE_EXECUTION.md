@@ -14,7 +14,7 @@ Esta entrega incorpora cortes seguros de las cinco fases y mantiene explícitos 
 | 2. Protección de datos | GET /account/export con perfil, compras/claves, suscripción, resumen de referidos, historial de acceso y resumen Seller; elimina hashes, sal y semillas 2FA de la exportación. Handler de backup cifrado y restore aditivo preparados para R2 | Crear bucket R2 y binding BACKUPS; configurar secreto independiente BACKUP_ENCRYPTION_SECRET; probar restore real. Snapshot limitado a 450 claves/6 MiB y falla cerrada si excede. Eliminación completa de cuenta permanece pendiente de mapa de retención y dependencias |
 | 3. Pagos y vendedores | Ledger de event.id PayPal para duplicados; eventos de reembolso/reversión/disputa se marcan para conciliación manual; pedidos existentes conservan lock por orden | Marketplace todavía no cobra ni liquida a vendedores. Falta modelo de órdenes, payout/escrow, reembolsos automáticos, disputa y pruebas Sandbox integrales |
 | 4. Experiencia social | Corrige fallback KV de presencia y evita revelar estado invisible; conserva heartbeat, rutas y respuesta de Friends. Ya hay base de soporte/notificaciones y Security Center en Ocean Suite | Solicitudes de mensajes, preferencias finas y un inbox unificado requieren endpoints, límites y pruebas de privacidad adicionales |
-| 5. OceanHub 3.0 | Hereda /download, PWA, política de versión y shell Tauri 2 Windows/Android. Actualiza CI Android a setup-android v4 y evita el paquete SDK obsoleto tools | Login/OAuth/2FA nativos, builds nativos validados, firma comercial, APK/EXE/MSI oficiales, actualización firmada y recuperación. El shell no debe tratarse como app terminada |
+| 5. OceanHub 3.0 | Hereda /download, PWA, política de versión y shell Tauri 2 Windows/Android. CI prepara un instalador Windows NSIS .exe sin firma y un APK Android arm64 debug; actualiza setup-android v4, iconos Tauri y Maven Central/Google en buildSrc Android | Login/OAuth/2FA nativos, firma comercial, paquetes oficiales y updater firmado. MSI queda fuera de este build de prueba por la restricción de prerelease de Tauri. El shell no debe tratarse como app terminada |
 
 ## Cambios de contrato y compatibilidad
 
@@ -58,3 +58,8 @@ Para ejecutar una prueba manual en el Worker de Preview con una clave de staging
 ## Compilación nativa
 
 La configuración Tauri incluye ahora iconos PNG/ICO; el workflow Android no duplica `--apk`. La validación nativa debe producir artefactos de prueba no firmados; no son releases comerciales ni actualizaciones oficiales.
+
+
+### Estado de compilación nativa
+
+La fase nativa se prueba en GitHub Actions. El instalador Windows de esta fase es NSIS `.exe` sin firma; MSI queda fuera hasta cambiar la versión prerelease a un formato numérico compatible. Android se compila como APK arm64 de depuración. Ninguno de estos archivos es una release oficial ni un paquete firmado. Los archivos deben considerarse disponibles solo después de que el job `OceanHub Native build validation` termine en verde y los artefactos aparezcan en su Summary.
