@@ -16,7 +16,7 @@ appRoot.innerHTML = `
     <div class="web-launch-mark" aria-hidden="true">O</div>
     <p class="web-launch-eyebrow">OCEANHUB EVERYWHERE</p>
     <h1>Abre OceanHub completo</h1>
-    <p>La aplicación utiliza la web oficial de OceanHub para ofrecer las mismas páginas y funciones en Windows y Android.</p>
+    <p>La aplicación utiliza la web oficial de OceanHub para ofrecer las mismas páginas y funciones en Android.</p>
     <a class="web-launch-button" href="${OCEANHUB_WEB_URL}">Abrir OceanHub <span aria-hidden="true">↗</span></a>
     <p class="web-launch-note">Necesitas conexión a Internet. Tu cuenta y tus datos siguen protegidos por el servidor de OceanHub.</p>
   </main>
