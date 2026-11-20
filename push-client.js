@@ -14,6 +14,8 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   var foregroundPollTimer = null;
   var foregroundKnownIds = null;
   var foregroundPollInFlight = false;
+  var foregroundPreferences = { messages: true, social: true, system: true };
+  var foregroundPreferencesAt = 0;
 
   function byId(id) { return document.getElementById(id); }
   function status(message, isError) {
@@ -315,6 +317,34 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
     } catch (_) {}
   }
 
+  function foregroundCategory(type) {
+    var value = String(type || "").toLowerCase();
+    if (value === "dm" || value === "message" || value.indexOf("message") >= 0) return "messages";
+    if (["verification", "verification_request", "security", "payment", "system"].indexOf(value) >= 0) return "system";
+    return "social";
+  }
+
+  async function refreshForegroundPreferences() {
+    if (Date.now() - foregroundPreferencesAt < 60000) return;
+    foregroundPreferencesAt = Date.now();
+    try {
+      var response = await fetch("/api/push/preferences", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) return;
+      var result = await response.json();
+      if (result && result.preferences) {
+        ["messages", "social", "system"].forEach(function (key) {
+          foregroundPreferences[key] = result.preferences[key] !== false;
+        });
+      }
+    } catch (_) {
+      // Preferences are optional until the push API is deployed; default to enabled.
+    }
+  }
+
   async function pollForegroundNotifications() {
     var enabled = (androidApp && localFlag("oh_push_android_enabled")) ||
       (windowsApp && localFlag("oh_push_windows_enabled"));
@@ -331,13 +361,15 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
       if (!response.ok) return;
       var result = await response.json();
       var notifications = Array.isArray(result.notifications) ? result.notifications : [];
+      await refreshForegroundPreferences();
       if (foregroundKnownIds === null) {
         foregroundKnownIds = new Set(notifications.map(function (item) { return String(item && item.id || ""); }).filter(Boolean));
         return;
       }
       var fresh = notifications.filter(function (item) {
         var id = String(item && item.id || "");
-        return id && !foregroundKnownIds.has(id);
+        var category = foregroundCategory(item && item.type);
+        return id && !foregroundKnownIds.has(id) && foregroundPreferences[category] !== false;
       });
       fresh.slice().reverse().forEach(showForegroundNotification);
       notifications.forEach(function (item) {
@@ -357,6 +389,8 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   function startForegroundPolling() {
     if (foregroundPollTimer) clearInterval(foregroundPollTimer);
     foregroundKnownIds = null;
+    foregroundPreferencesAt = 0;
+    foregroundPreferences = { messages: true, social: true, system: true };
     pollForegroundNotifications();
     foregroundPollTimer = setInterval(pollForegroundNotifications, 15000);
   }
