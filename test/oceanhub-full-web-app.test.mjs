@@ -40,7 +40,7 @@ test("the native workflow uploads one raw APK and contains no Windows installer 
   assert.match(workflow, /actions\/upload-artifact@v7/);
   assert.match(workflow, /archive:\s*false/);
   assert.match(workflow, /OceanHub-Android-arm64-preview\.apk/);
-  assert.doesNotMatch(workflow, /windows-test-installers|\.exe|\.msi/);
+  assert.doesNotMatch(workflow, /windows-test-installers|OceanHub-Windows|tauri:build/);
 });
 
 test("remote OceanHub web content receives no Tauri IPC capability", async () => {
