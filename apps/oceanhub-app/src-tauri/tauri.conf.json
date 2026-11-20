@@ -35,7 +35,7 @@
     "category": "SocialNetworking",
     "shortDescription": "La aplicación independiente de OceanHub",
     "longDescription": "OceanHub es el espacio gamer y social de COMPANY GAMER STUDIOS.",
-    "icons": [
+    "icon": [
       "icons/icon.png",
       "icons/icon.ico"
     ]
