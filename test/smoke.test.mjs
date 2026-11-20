@@ -361,6 +361,17 @@ test('security and account-data routes keep existing client contracts while tigh
   assert.match(source, /Content-Security-Policy-Report-Only/);
 });
 
+test('OAuth state is consumed under a distributed lock to reject parallel callbacks', () => {
+  assert.match(source, /async function consumeOAuthState[\\s\\S]{0,700}withKVLock\\(env, `oauth-state:/);
+  assert.match(source, /await env\\.STATS\\.delete\\(storageKey\\)/);
+});
+
+test('account export excludes password hashes, salts, TOTP seeds and session versions', () => {
+  assert.match(source, /async function handleAccountExport[\\s\\S]{0,1200}passwordHash/);
+  assert.match(source, /async function handleAccountExport[\\s\\S]{0,1200}otp_secret/);
+  assert.match(source, /path === '\\/account\\/export'/);
+});
+
 test('backup restore remains opt-in, encrypted, R2-backed and additive only', () => {
   assert.match(source, /BACKUPS_R2_NOT_CONFIGURED/);
   assert.match(source, /encryptBackupPayload\(env, JSON\.stringify\(snapshot\)\)/);
