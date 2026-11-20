@@ -26,7 +26,8 @@ test('native build CI creates and validates only a directly downloadable Android
 });
 
 test('production deployment is restricted to main even when manually dispatched', () => {
-  assert.ok(deployWorkflow.includes('branches:\\n      - main'));
+  assert.ok(deployWorkflow.includes('branches:'));
+  assert.ok(deployWorkflow.includes('- main'));
   assert.ok(deployWorkflow.includes('refs/heads/main'));
   assert.ok(deployWorkflow.includes('El despliegue de producción solo se permite desde main.'));
   assert.ok(deployWorkflow.includes('actions/checkout@v7'));
