@@ -45,3 +45,10 @@ The CI suite is not a full pentest. It does not call Cloudflare production, list
 ## Segunda pasada — rama five-phase-execution
 
 Se añadieron Nonces atómicos con consumo en Durable Object ligado al hash de IP, limitación de emisión, controles cross-site para mutaciones con cookie, métodos POST para checkout/canje/cancelación, protección CSV, CSP Report-Only más estricta y ledger de eventos PayPal. Se añadió exportación de datos de cuenta sin hashes de contraseña, sal, semillas 2FA ni sesiones. El backup cifrado depende de R2 y de `BACKUP_ENCRYPTION_SECRET`; no se ha probado ni habilitado en producción. Marketplace sigue sin checkout/payout y la eliminación total de cuenta sigue pendiente de una política de retención y mapa de dependencias.
+
+
+## Controles adicionales de la rama five-phase-execution
+
+- El consumo de OAuth state ahora se serializa con Durable Object lock, y el registro se elimina dentro de la sección crítica para impedir que dos callbacks acepten el mismo state en paralelo.
+- Se agregó una prueba de integración HMAC para el flujo `/get-nonce` + `/verify`, incluida la protección contra replay y el enlace de IP.
+- Se añadió guía de prueba manual para clientes Lua; recuerda que un secreto incrustado en un script cliente distribuido puede extraerse y no sustituye autenticación por usuario/dispositivo.
