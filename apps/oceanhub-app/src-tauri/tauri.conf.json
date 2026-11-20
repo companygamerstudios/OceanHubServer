@@ -4,8 +4,7 @@
   "version": "3.0.0-preview.1",
   "identifier": "com.companygamerstudios.oceanhub",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://127.0.0.1:1420",
+    "devUrl": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -19,7 +18,8 @@
         "minWidth": 360,
         "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "url": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/"
       }
     ],
     "security": {
