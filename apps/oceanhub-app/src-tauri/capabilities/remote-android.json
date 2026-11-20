@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "oceanhub-android-remote",
+  "description": "Permite a la web oficial de OceanHub usar únicamente FCM y notificaciones nativas en Android.",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "https://oceanhud.yoelenmanuelzorrilla.workers.dev/**"
+    ]
+  },
+  "platforms": [
+    "android"
+  ],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "fcm:default"
+  ]
+}
