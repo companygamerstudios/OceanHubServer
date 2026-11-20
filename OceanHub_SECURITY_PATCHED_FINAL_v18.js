@@ -1,5 +1,7 @@
 import { handleOceanSuiteRoute, getVerifiedBadge, renderVerifiedBadge } from './ocean-suite.js';
 import { handleDownloadCenterRoute, injectAppUpdateNotice } from './download-center.js';
+import { handlePushApi, handlePushSocket, handleFirebaseMessagingServiceWorker, sendPushToUser } from './push-notifications.js';
+import { PUSH_CLIENT_JS } from './push-client.js';
 
 // ==========================================================
 // 🌊 OCEAN HUB V29.1 — SOCIAL + editar perfil (bio/avatar) + notificaciones
@@ -1058,6 +1060,38 @@ export class KVLocker {
     async fetch(request) {
         const url = new URL(request.url);
 
+        if (url.pathname === '/realtime/push/connect' && request.method === 'GET') {
+            if (String(request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
+                return new Response('websocket required', { status: 426 });
+            }
+            if (this.state.getWebSockets('push').length >= 5) return new Response('too many connections', { status: 429 });
+            const pair = new WebSocketPair();
+            const client = pair[0], server = pair[1];
+            this.state.acceptWebSocket(server, ['push']);
+            server.serializeAttachment({ connectedAt: Date.now() });
+            return new Response(null, { status: 101, webSocket: client });
+        }
+        if (url.pathname === '/realtime/push/publish' && request.method === 'POST') {
+            const raw = await request.text();
+            if (raw.length > 4096) return new Response('payload too large', { status: 413 });
+            let payload; try { payload = JSON.parse(raw); } catch { return new Response('bad request', { status: 400 }); }
+            const href = String(payload?.href || '/notifications');
+            if (!href.startsWith('/') || href.startsWith('//') || href.includes('\\')) return new Response('bad href', { status: 400 });
+            const message = JSON.stringify({
+                title: String(payload?.title || 'OceanHub').slice(0, 120),
+                body: String(payload?.body || '').slice(0, 180),
+                type: String(payload?.type || 'info').slice(0, 40),
+                href: href.slice(0, 200),
+                at: String(payload?.at || new Date().toISOString()).slice(0, 40)
+            });
+            let delivered = 0;
+            for (const socket of this.state.getWebSockets('push')) {
+                try { socket.send(message); delivered += 1; }
+                catch (_) { try { socket.close(1011, 'delivery failed'); } catch (_) {} }
+            }
+            return Response.json({ ok: true, delivered });
+        }
+
         if (url.pathname === '/realtime/presence/touch' && request.method === 'POST') {
             let payload; try { payload = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
             const key = String(payload?.key || '');
@@ -1185,6 +1219,27 @@ export class KVLocker {
         }
              return new Response('not found', { status: 404 });
   }
+
+    webSocketMessage(webSocket, message) {
+        if (typeof message !== 'string' || message.length > 256) return;
+        try {
+            const payload = JSON.parse(message);
+            if (payload?.type === 'ping') webSocket.send(JSON.stringify({ type: 'pong' }));
+        } catch (_) {}
+    }
+
+    webSocketClose(webSocket, code, reason) {
+        // Complete the close handshake for hibernatable WebSockets.
+        if (code !== 1005 && code !== 1006 && code !== 1015) {
+            try { webSocket.close(code, reason); } catch (_) {}
+        } else {
+            try { webSocket.close(); } catch (_) {}
+        }
+    }
+
+    webSocketError(webSocket, error) {
+        console.warn('Push WebSocket error:', error?.message || 'unknown');
+    }
 }
 
 // ==================================================
@@ -10887,6 +10942,9 @@ async function socialPushNotif(env, toEmail, notif) {
     };
     list.unshift(item);
     await socialSaveNotifs(env, toEmail, list);
+    // Persisted in-app notifications remain authoritative; push delivery is best-effort.
+    try { await sendPushToUser(env, toEmail, item); }
+    catch (error) { console.warn('Push notification delivery skipped:', error?.message || error); }
     return item;
 }
 
@@ -11045,6 +11103,18 @@ async function handleNotificationsPage(env, request) {
     if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
     const html = socialShell('Notificaciones', `
       <h1>🔔 Notificaciones</h1>
+      <section class="card" id="pushSettings" aria-labelledby="pushSettingsTitle">
+        <h2 id="pushSettingsTitle">Notificaciones en tus dispositivos</h2>
+        <p id="pushStatus" class="muted">Activa las notificaciones para recibir avisos de OceanHub en este dispositivo.</p>
+        <div class="row">
+          <button class="btn" type="button" id="pushEnable">Activar notificaciones</button>
+          <button class="btn ghost" type="button" id="pushDisable">Desactivar en este dispositivo</button>
+        </div>
+        <label id="pushAutostartWrap" hidden style="display:flex;align-items:center;gap:8px;margin-top:12px">
+          <input type="checkbox" id="pushAutostart" style="width:auto">
+          Iniciar OceanHub al encender Windows (opcional)
+        </label>
+      </section>
       <div class="row" style="margin-bottom:12px">
         <button class="btn ghost" id="readAll">Marcar todas leídas</button>
         <button class="btn danger" id="clearAll">Vaciar</button>
@@ -11121,6 +11191,16 @@ export async function workerFetch(request, env) {
             });
         }
 
+        // Static push assets are same-origin and do not expose user data.
+        if (path === '/assets/oceanhub-push.js') {
+            return new Response(PUSH_CLIENT_JS, {
+                headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' }
+            });
+        }
+        if (path === '/firebase-messaging-sw.js') {
+            return handleFirebaseMessagingServiceWorker(env);
+        }
+
         // ==================================================
         // 🔐 GATE DE AUTENTICACIÓN
         // ==================================================
@@ -11129,6 +11209,20 @@ export async function workerFetch(request, env) {
             if (!auth) {
                 return Response.redirect(`${url.origin}/welcome`, 302);
             }
+        }
+
+        if (path === '/api/push/socket') {
+            const auth = await requireAuth(env, request);
+            if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+            return await handlePushSocket(env, request, auth.user.email);
+        }
+        if (path.startsWith('/api/push/')) {
+            const auth = await requireAuth(env, request);
+            if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+            if (!(await checkActionRateLimit(env, 'push-api:' + path, auth.user.email, 30, 3600))) {
+                return jsonResponse({ error: 'Demasiadas solicitudes de notificaciones' }, 429);
+            }
+            return await handlePushApi(env, request, auth.user.email);
         }
 
         if (path === '/ocean' || path.startsWith('/ocean/') || path.startsWith('/admin/ocean-')) {
@@ -11678,6 +11772,9 @@ export async function applySecurityHeaders(response, festivityConfig = null) {
             const looksLikeHtml = /^(?:\uFEFF)?\s*(?:<!doctype\s+html|<html\b)/i.test(textBody);
             if (contentType.toLowerCase().includes('text/html') || looksLikeHtml) {
                 body = injectFestivityTheme(injectOceanLiquidGlassTheme(textBody), festivityConfig);
+                if (!textBody.includes('/assets/oceanhub-push.js')) {
+                    body = body.replace(/<\/body\s*>/i, '<script src="/assets/oceanhub-push.js" defer></script></body>');
+                }
                 headers.set('Content-Type', 'text/html; charset=utf-8');
                 headers.delete('Content-Length');
                 headers.delete('content-length');
@@ -11696,11 +11793,11 @@ export async function applySecurityHeaders(response, festivityConfig = null) {
         "object-src 'none'",
         "frame-ancestors 'none'",
         "form-action 'self'",
-        "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com",
+        "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com https://www.gstatic.com",
         "style-src 'self' https://fonts.googleapis.com",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https://fonts.gstatic.com",
-        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com",
+        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com https://fcm.googleapis.com wss://oceanhud.yoelenmanuelzorrilla.workers.dev",
         "frame-src 'self' https://www.paypal.com",
         "media-src 'self' blob:",
         "worker-src 'self' blob:",
@@ -11712,13 +11809,13 @@ export async function applySecurityHeaders(response, festivityConfig = null) {
         "object-src 'none'",
         "frame-ancestors 'none'",
         "form-action 'self'",
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com https://www.gstatic.com",
         "script-src-attr 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
         "style-src-attr 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https://fonts.gstatic.com",
-        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com",
+        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com https://fcm.googleapis.com wss://oceanhud.yoelenmanuelzorrilla.workers.dev",
         "frame-src 'self' https://www.paypal.com",
         "media-src 'self' blob:",
         "worker-src 'self' blob:",
@@ -11744,6 +11841,7 @@ export default {
         }
         try {
             const response = await workerFetch(request, env);
+            if (response.status === 101) return response;
             let festivityConfig = null;
             const responseType = (response.headers.get('Content-Type') || '').toLowerCase();
             if (responseType.includes('text/html') || !responseType || responseType.startsWith('text/plain')) {
