@@ -7,6 +7,8 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   var windowsApp = isTauri && (/Windows/i.test(ua) || /Win32|Win64/i.test(navigator.platform || ""));
   var socket = null;
   var reconnectTimer = null;
+  var heartbeatTimer = null;
+  var lastPongAt = 0;
   var retry = 0;
   var webPushInitialized = false;
 
@@ -127,7 +129,7 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   async function setupAndroid() {
     if (!api) throw new Error("El puente nativo de OceanHub no está disponible.");
     var permission = await api("plugin:fcm|request_permissions");
-    if (permission && permission.notification && permission.notification !== "granted") {
+    if (!permission || permission.notification !== "granted") {
       throw new Error("Android no concedió el permiso para mostrar notificaciones.");
     }
     await api("plugin:fcm|register");
@@ -238,7 +240,9 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
 
   function closeWindowsSocket() {
     if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     reconnectTimer = null;
+    heartbeatTimer = null;
     if (socket) {
       try { socket.close(1000, "user disabled"); } catch (_) {}
     }
@@ -264,15 +268,29 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
       socket = new WebSocket(protocol + "//" + location.host + "/api/push/socket");
       socket.onopen = function () {
         retry = 0;
+        lastPongAt = Date.now();
         try { socket.send(JSON.stringify({ type: "ping" })); } catch (_) {}
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(function () {
+          if (!socket || socket.readyState !== WebSocket.OPEN) return;
+          if (Date.now() - lastPongAt > 75000) {
+            try { socket.close(4000, "heartbeat timeout"); } catch (_) {}
+            return;
+          }
+          try { socket.send(JSON.stringify({ type: "ping" })); } catch (_) {}
+        }, 25000);
       };
       socket.onmessage = function (event) {
         var data;
         try { data = JSON.parse(event.data); } catch (_) { return; }
-        if (data && data.type !== "pong") showWindowsNotification(data);
+        if (!data) return;
+        if (data.type === "pong") { lastPongAt = Date.now(); return; }
+        showWindowsNotification(data);
       };
       socket.onclose = function () {
         socket = null;
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
         if (!localFlag("oh_push_windows_enabled")) return;
         var wait = Math.min(30000, 1000 * Math.pow(2, Math.min(retry++, 5)));
         reconnectTimer = setTimeout(connectWindows, wait);
@@ -324,6 +342,11 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
     if (autostart && windowsApp) {
       api("plugin:autostart|is_enabled").then(function (enabled) { autostart.checked = !!enabled; }).catch(function () {});
       autostart.addEventListener("change", function () {
+        if (autostart.checked && !localFlag("oh_push_windows_enabled")) {
+          autostart.checked = false;
+          status("Primero activa las notificaciones de OceanHub en este dispositivo.", true);
+          return;
+        }
         var action = autostart.checked ? "plugin:autostart|enable" : "plugin:autostart|disable";
         api(action).catch(function (error) {
           autostart.checked = !autostart.checked;
