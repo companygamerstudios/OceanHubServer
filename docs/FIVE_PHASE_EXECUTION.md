@@ -48,3 +48,13 @@ El código no configura un bucket R2 automáticamente y responde 503 cuando falt
 - Revisar PRs apilados #19, #20 y #21 en orden, sin mezclar configuraciones de producción.
 
 **No activar el despliegue a producción desde esta rama.** La integración requiere revisión humana y prueba real de compatibilidad, especialmente por los cambios a los métodos de checkout/canje.
+
+## Prueba del cliente OceanHub V8
+
+Se añadió `test/verify-integration.test.mjs`, que llama directamente a `workerFetch` con un Durable Object en memoria y ejecuta el contrato real de `/get-nonce` + `/verify`: HMAC SHA-256, éxito, firma incorrecta, repetición de Nonce e IP distinta. También se serializó el consumo de OAuth state con `withKVLock` para cerrar la carrera de get/delete.
+
+Para ejecutar una prueba manual en el Worker de Preview con una clave de staging, sigue `docs/CLIENT_V8_TEST_GUIDE.md`. El proyecto no contiene el archivo fuente Lua del cliente que está instalado fuera de este repositorio, por lo que la prueba real en el executor todavía debe ejecutarse con tu copia del cliente.
+
+## Compilación nativa
+
+La configuración Tauri incluye ahora iconos PNG/ICO; el workflow Android no duplica `--apk`. La validación nativa debe producir artefactos de prueba no firmados; no son releases comerciales ni actualizaciones oficiales.
