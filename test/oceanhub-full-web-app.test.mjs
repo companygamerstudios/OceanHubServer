@@ -29,7 +29,7 @@ test("the Android build validates the installed app identity and launcher entry"
   assert.match(workflow, /com\.companygamerstudios\.oceanhub/);
   assert.match(workflow, /application-label:'OceanHub'/);
   assert.match(workflow, /launchable-activity/);
-  assert.match(workflow, /application-icon-[0-9]+:/);
+  assert.ok(workflow.includes('application-icon-[0-9]+:'), 'workflow must verify an APK launcher icon');
 });
 
 test("the native workflow uploads one raw APK and contains no Windows installer job", async () => {
