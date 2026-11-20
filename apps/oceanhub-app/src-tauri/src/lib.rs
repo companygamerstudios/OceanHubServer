@@ -2,7 +2,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Manager,
 };
 
 #[cfg(windows)]
@@ -57,7 +57,7 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_autostart::Builder::new()
-            .args(["--background"])
+            .args([])
             .app_name("OceanHub")
             .build(),
     );
@@ -65,23 +65,8 @@ pub fn run() {
     builder
         .setup(|app| {
             #[cfg(windows)]
-            {
-                install_windows_tray(app)?;
-                if std::env::args().any(|arg| arg == "--background") {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
-                }
-            }
+            install_windows_tray(app)?;
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            #[cfg(windows)]
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                // Closing the window hides OceanHub; the app and push socket stay alive in tray.
-                api.prevent_close();
-                let _ = window.hide();
-            }
         })
         .run(tauri::generate_context!())
         .expect("OceanHub application failed to start");
