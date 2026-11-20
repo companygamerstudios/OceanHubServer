@@ -4,7 +4,7 @@ const MAX_DEVICES_PER_USER = 12;
 const MAX_REGISTRATION_TOKEN_LENGTH = 4096;
 const FIREBASE_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const FIREBASE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const FIREBASE_SDK_VERSION = "10.14.1";
+const FIREBASE_SDK_VERSION = "13.4.0";
 
 let accessTokenCache = null;
 const cryptoKeyCache = new Map();
