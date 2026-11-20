@@ -47,7 +47,11 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   async function currentDeviceRegistration() {
     if (androidApp && localFlag("oh_push_android_enabled")) {
       var androidToken = await api("plugin:fcm|get_token");
-      return androidToken && androidToken.token ? { platform: "android", token: androidToken.token } : null;
+      return androidToken && androidToken.token ? {
+        platform: "android",
+        token: androidToken.token,
+        revoke: function () { return api("plugin:fcm|delete_token"); }
+      } : null;
     }
     if (windowsApp && localFlag("oh_push_windows_enabled")) {
       return { platform: "windows", token: getWindowsDeviceToken() };
@@ -69,7 +73,11 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
         vapidKey: config.vapidKey,
         serviceWorkerRegistration: registration
       });
-      return token ? { platform: "web", token: token } : null;
+      return token ? {
+        platform: "web",
+        token: token,
+        revoke: function () { return messagingModule.deleteToken(messaging); }
+      } : null;
     }
     return null;
   }
@@ -89,23 +97,34 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
       }
       event.preventDefault();
       link.dataset.ohPushLogoutPending = "1";
+      var devicePromise = currentDeviceRegistration().catch(function () { return null; });
+      // Do not carry a previous account's opt-in into the next account on a shared device.
+      setLocalFlag("oh_push_android_enabled", false);
+      setLocalFlag("oh_push_web_enabled", false);
+      setLocalFlag("oh_push_windows_enabled", false);
+      closeWindowsSocket();
+      if (windowsApp && api) api("plugin:autostart|disable").catch(function () {});
       var cleanup = (async function () {
         try {
-          var device = await currentDeviceRegistration();
+          var device = await devicePromise;
           if (!device) return;
-          await fetch("/api/push/unregister", {
+          var jobs = [fetch("/api/push/unregister", {
             method: "POST",
             credentials: "same-origin",
             cache: "no-store",
             keepalive: true,
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(device)
-          });
+            body: JSON.stringify({ platform: device.platform, token: device.token })
+          })];
+          if (typeof device.revoke === "function") {
+            jobs.push(Promise.resolve().then(device.revoke).catch(function () {}));
+          }
+          await Promise.allSettled(jobs);
         } catch (_) {
           // Logout must remain available even when a push provider or the network fails.
         }
       })();
-      var timeout = new Promise(function (resolve) { setTimeout(resolve, 1500); });
+      var timeout = new Promise(function (resolve) { setTimeout(resolve, 2500); });
       Promise.race([cleanup, timeout]).finally(function () {
         location.assign(destination.href);
       });
