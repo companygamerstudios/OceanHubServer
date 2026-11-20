@@ -125,7 +125,7 @@ jobs:
           // Apply the loaded plugin in the app module without assuming a plugins {} block.
           let appSource = await readFile(appGradle, 'utf8');
           if (!appSource.includes('com.google.gms.google-services')) {
-            appSource += '\\napply(plugin = "com.google.gms.google-services")\\n';
+            appSource += '\napply(plugin = "com.google.gms.google-services")\n';
             await writeFile(appGradle, appSource);
           }
           console.log('Firebase Android configuration validated and attached to the generated app.');
