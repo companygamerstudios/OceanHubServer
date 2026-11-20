@@ -411,7 +411,7 @@ export function handleFirebaseMessagingServiceWorker(env) {
     });
   }
   const serialized = JSON.stringify(config).replace(/</g, "\\u003c");
-  const source = \`/* OceanHub Firebase Messaging service worker */
+  const source = `/* OceanHub Firebase Messaging service worker */
 self.addEventListener("notificationclick", function(event) {
   event.notification.close();
   var raw = event.notification && event.notification.data && event.notification.data.url || "/notifications";
@@ -428,11 +428,11 @@ self.addEventListener("notificationclick", function(event) {
     return self.clients.openWindow(target.href);
   }));
 });
-importScripts("https://www.gstatic.com/firebasejs/\${FIREBASE_SDK_VERSION}/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/\${FIREBASE_SDK_VERSION}/firebase-messaging-compat.js");
-firebase.initializeApp(\${serialized});
+importScripts("https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-messaging-compat.js");
+firebase.initializeApp(${serialized});
 firebase.messaging();
-\`;
+`;
   return new Response(source, {
     headers: {
       "Content-Type": "application/javascript; charset=utf-8",
