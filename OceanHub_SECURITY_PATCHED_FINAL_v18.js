@@ -11228,7 +11228,7 @@ export async function workerFetch(request, env) {
         if (path.startsWith('/api/push/')) {
             const auth = await requireAuth(env, request);
             if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
-            if (!(await checkActionRateLimit(env, 'push-api:' + path, auth.user.email, 30, 3600))) {
+            if (!(await checkActionRateLimit(env, 'push-api:' + path, auth.user.email, 120, 3600))) {
                 return jsonResponse({ error: 'Demasiadas solicitudes de notificaciones' }, 429);
             }
             return await handlePushApi(env, request, auth.user.email, withKVLock);
