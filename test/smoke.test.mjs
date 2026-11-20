@@ -353,7 +353,8 @@ test('security and account-data routes keep existing client contracts while tigh
   assert.match(source, /path === '\/account\/export'/);
   assert.match(source, /path === '\/shop\/create-checkout'[\s\S]{0,250}request\.method !== 'POST'/);
   assert.match(source, /path === '\/cancelar-renovacion'[\s\S]{0,180}request\.method !== 'POST'/);
-  assert.match(source, /if \(request\.method !== 'POST'\)[\s\S]{0,160}canjea el código mediante POST/);
+  assert.match(source, /Por seguridad, canjea el código mediante POST/);
+  assert.match(source, /if \(request\.method === 'POST'\)[\s\S]{0,180}codigo = String\(payload\?\.codigo/);
   assert.match(source, /paypal_event_/);
   assert.match(source, /Content-Security-Policy-Report-Only/);
 });
