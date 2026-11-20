@@ -307,5 +307,5 @@ test("the Worker wires persisted social and private-message notifications into p
   assert.match(source, /import \{ handlePushApi, handlePushSocket, handleFirebaseMessagingServiceWorker, sendPushToUser \} from '\.\/push-notifications\.js'/);
   assert.match(source, /if \(path\.startsWith\('\/api\/push\/'\)\)/);
   assert.match(source, /await sendPushToUser\(env, toEmail, item, withKVLock\)/);
-  assert.match(source, /socialPushNotif\\(env, peer\\.email,[\\s\\S]{0,400}type: 'dm'/);
+  assert.match(source, /socialPushNotif\(env, peer\.email,[\s\S]{0,400}type: 'dm'/);
 });
