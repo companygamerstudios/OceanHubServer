@@ -10,11 +10,11 @@ const nativeWorkflow = await readFile(new URL('../.github/workflows/oceanhub-nat
 const deployWorkflow = await readFile(new URL('../.github/workflows/deploy-production.yml', import.meta.url), 'utf8');
 
 test('native build CI creates and validates only a directly downloadable Android APK', () => {
-  assert.ok(nativeWorkflow.includes('Configure public repositories for generated Android buildSrc'));
+  assert.ok(nativeWorkflow.includes('Configure Maven repositories for Android Gradle and buildSrc'));
   assert.ok(nativeWorkflow.includes('mavenCentral()'));
   assert.ok(nativeWorkflow.includes('google()'));
   assert.ok(nativeWorkflow.includes('source.replace(/repositories'));
-  assert.ok(nativeWorkflow.includes('does not satisfy buildscript classpath'));
+  assert.ok(nativeWorkflow.includes('src-tauri/gen/android/buildSrc/settings.gradle.kts'));
   assert.ok(nativeWorkflow.includes('Build installable Android arm64 APK'));
   assert.ok(nativeWorkflow.includes("com.companygamerstudios.oceanhub"));
   assert.ok(nativeWorkflow.includes("application-label:'OceanHub'"));
