@@ -90,6 +90,14 @@ test("push tokens are encrypted at rest and can be decrypted with the separate s
   ));
 });
 
+
+test("token encryption refuses reuse of an existing OceanHub security secret", async () => {
+  await assert.rejects(() => encryptPushToken({
+    PUSH_TOKEN_ENCRYPTION_SECRET: ENCRYPTION_SECRET,
+    HMAC_SECRET_CURRENT: ENCRYPTION_SECRET
+  }, "fcm-registration-token-" + "x".repeat(80)));
+});
+
 test("device registration stores an encrypted record and unregister removes it", async () => {
   const STATS = createKV();
   const env = { STATS, PUSH_TOKEN_ENCRYPTION_SECRET: ENCRYPTION_SECRET };
@@ -178,7 +186,7 @@ test("web configuration exposes only the public Firebase config and VAPID key", 
     authDomain: "oceanhub-91e40.firebaseapp.com",
     projectId: "oceanhub-91e40",
     messagingSenderId: "496873954616",
-    appId: "1:496873954616:web:abcdef"
+    appId: "1:496873954616:web:75966f9a66ecf83d7435cd"
   };
   const env = {
     STATS: createKV(),
@@ -201,7 +209,7 @@ test("Firebase service worker is same-origin scoped and uses current SDK compat 
       authDomain: "oceanhub-91e40.firebaseapp.com",
       projectId: "oceanhub-91e40",
       messagingSenderId: "496873954616",
-      appId: "1:496873954616:web:abcdef"
+      appId: "1:496873954616:web:75966f9a66ecf83d7435cd"
     })
   });
   assert.equal(response.status, 200);
