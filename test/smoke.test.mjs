@@ -271,6 +271,14 @@ test('OceanHub Staff and OceanHub Sellers remain separate account roles', () => 
 });
 
 
+test('Friends presence fallback reads the correct heartbeat and never discloses invisible mode', () => {
+  assert.ok(source.includes("else isOnline = !!(await env.STATS.get(await communityPresenceKey(publicFriend.email)));"));
+  assert.equal(source.includes("else isOnline = !!(await env.STATS.get(await communityPresenceKey(env, publicFriend.email)));"), false);
+  assert.ok(source.includes("if (status.status === 'invisible') isOnline = false;"));
+  assert.ok(source.includes("const visibleStatus = isOnline ? status.status : 'offline';"));
+  assert.ok(source.includes("status: visibleStatus,"));
+});
+
 test('Friends now uses low-latency presence snapshots and refreshes without reloading the page', () => {
   assert.ok(source.includes("url.pathname === '/realtime/presence/batch'"));
   assert.ok(source.includes("communityRealtimeCall(env, '/realtime/presence/batch'"));
