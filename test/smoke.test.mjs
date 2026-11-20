@@ -6,6 +6,16 @@ import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, dec
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
 const local = JSON.parse(await readFile(new URL('../wrangler.local.jsonc', import.meta.url), 'utf8'));
+const nativeWorkflow = await readFile(new URL('../.github/workflows/oceanhub-native-validation.yml', import.meta.url), 'utf8');
+
+test('native build CI patches Gradle repositories and creates a Windows NSIS test installer', () => {
+  assert.ok(nativeWorkflow.includes('Configure public repositories for generated Android buildSrc'));
+  assert.ok(nativeWorkflow.includes('mavenCentral()'));
+  assert.ok(nativeWorkflow.includes('google()'));
+  assert.ok(nativeWorkflow.includes('--bundles nsis'));
+  assert.equal(nativeWorkflow.includes('bundle/msi/'), false);
+  assert.ok(nativeWorkflow.includes('Verify APK output exists'));
+});
 
 test('PayPal mode accepts only explicit sandbox/live values', () => {
   assert.equal(getPayPalMode({ PAYPAL_MODE: 'sandbox' }), 'sandbox');
