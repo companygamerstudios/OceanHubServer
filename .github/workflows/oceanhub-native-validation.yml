@@ -76,18 +76,19 @@ jobs:
           for (const file of candidates) {
             try { await access(file); } catch { continue; }
             let source = await readFile(file, 'utf8');
-            if (!/repositories\s*\{/.test(source)) {
-              source += '\nrepositories {\n    google()\n    mavenCentral()\n    gradlePluginPortal()\n}\n';
+            if (/repositories\\s*\\{/.test(source)) {
+              // Add repositories to every declared repository handler. Do not
+              // infer availability from other blocks: buildscript.repositories
+              // is isolated from pluginManagement/project repositories.
+              source = source.replace(/repositories\\s*\\{/g, (block) =>
+                block + '\\n        google()\\n        mavenCentral()\\n        gradlePluginPortal()'
+              );
             } else {
-              source = source.replace(/repositories\s*\{/, (block) => {
-                const lines = [];
-                if (!/\bgoogle\(\)/.test(source)) lines.push('    google()');
-                if (!/\bmavenCentral\(\)/.test(source)) lines.push('    mavenCentral()');
-                return lines.length ? block + '\n' + lines.join('\n') : block;
-              });
+              // buildSrc resolves its buildscript classpath independently.
+              source += '\\nbuildscript {\\n    repositories {\\n        google()\\n        mavenCentral()\\n        gradlePluginPortal()\\n    }\\n}\\n';
             }
             await writeFile(file, source);
-            console.log('Configured Google Maven + Maven Central in ' + file);
+            console.log('Configured google(), mavenCentral() and gradlePluginPortal() in ' + file);
             patched = true;
           }
           if (!patched) throw new Error('Generated Android buildSrc Gradle file was not found.');
