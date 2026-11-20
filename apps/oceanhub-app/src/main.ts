@@ -1,3 +1,5 @@
+import "./styles.css";
+
 const OCEANHUB_WEB_URL = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/";
 
 const appRoot = document.querySelector<HTMLDivElement>("#app");
