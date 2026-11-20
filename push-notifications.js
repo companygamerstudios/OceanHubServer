@@ -6,6 +6,8 @@ const FIREBASE_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const FIREBASE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const FIREBASE_SDK_VERSION = "13.4.0";
 const FIREBASE_PROJECT_ID = "oceanhub-91e40";
+const FIREBASE_SENDER_ID = "496873954616";
+const FIREBASE_WEB_APP_ID = "1:496873954616:web:75966f9a66ecf83d7435cd";
 
 let accessTokenCache = null;
 let accessTokenPromise = null;
@@ -89,6 +91,15 @@ export function validatePushRegistration(input) {
 async function getEncryptionKey(env) {
   const secret = String(env?.PUSH_TOKEN_ENCRYPTION_SECRET || "");
   if (secret.length < 32) throw new Error("PUSH_TOKEN_ENCRYPTION_SECRET no está configurado correctamente");
+  const relatedSecrets = [
+    env?.HMAC_SECRET_CURRENT,
+    env?.HMAC_SECRET_PREVIOUS,
+    env?.DYNAMIC_KEY_ENCRYPTION_SECRET,
+    env?.DYNAMIC_KEY_INDEX_SECRET
+  ].filter(Boolean).map(String);
+  if (relatedSecrets.includes(secret)) {
+    throw new Error("PUSH_TOKEN_ENCRYPTION_SECRET debe ser distinto de las claves de HMAC y de cifrado de OceanHub");
+  }
   if (!cryptoKeyCache.has(secret)) {
     const pending = (async () => {
       const material = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
@@ -164,7 +175,10 @@ function getFirebaseWebConfig(env) {
     const config = JSON.parse(String(env?.FIREBASE_WEB_CONFIG_JSON || ""));
     const required = ["apiKey", "authDomain", "projectId", "messagingSenderId", "appId"];
     if (!config || typeof config !== "object" || required.some(key => typeof config[key] !== "string" || !config[key])) return null;
-    if (config.projectId !== FIREBASE_PROJECT_ID) return null;
+    if (config.projectId !== FIREBASE_PROJECT_ID ||
+        config.authDomain !== FIREBASE_PROJECT_ID + ".firebaseapp.com" ||
+        config.messagingSenderId !== FIREBASE_SENDER_ID ||
+        config.appId !== FIREBASE_WEB_APP_ID) return null;
     return Object.fromEntries(required.concat(["storageBucket"]).filter(key => typeof config[key] === "string").map(key => [key, config[key]]));
   } catch {
     return null;
@@ -234,12 +248,9 @@ export async function handlePushApi(env, request, email, withLock = null) {
   }
 
   if (path === "/api/push/unregister") {
-    const platform = String(body?.platform || "").toLowerCase();
-    const token = String(body?.token || "").trim();
-    if (!["android", "web", "windows"].includes(platform) || token.length < 40 || token.length > MAX_REGISTRATION_TOKEN_LENGTH) {
-      return json({ error: "Registro no válido" }, 400);
-    }
-    const deviceId = await sha256(platform + ":" + token);
+    const validation = validatePushRegistration(body);
+    if (!validation.ok) return json({ error: "Registro no válido" }, 400);
+    const deviceId = await sha256(validation.platform + ":" + validation.token);
     await runWithAccountLock(env, withLock, "devices", email, async () => {
       const current = await readDevices(env, email);
       await writeDevices(env, email, current.filter(device => device?.id !== deviceId));
