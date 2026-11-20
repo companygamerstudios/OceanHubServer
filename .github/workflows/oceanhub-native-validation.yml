@@ -104,7 +104,7 @@ jobs:
           grep -F "package: name='com.companygamerstudios.oceanhub'" /tmp/oceanhub-apk-badging.txt
           grep -F "application-label:'OceanHub'" /tmp/oceanhub-apk-badging.txt
           grep -F "application: label='OceanHub'" /tmp/oceanhub-apk-badging.txt
-          grep -F "ic_launcher" /tmp/oceanhub-apk-badging.txt
+          grep -Eq "^application-icon-[0-9]+:" /tmp/oceanhub-apk-badging.txt
           grep -q '^launchable-activity:' /tmp/oceanhub-apk-badging.txt
           mkdir -p release
           cp "$APK" release/OceanHub-Android-arm64-preview.apk
