@@ -76,16 +76,15 @@ jobs:
           for (const file of candidates) {
             try { await access(file); } catch { continue; }
             let source = await readFile(file, 'utf8');
-            if (/repositories\\s*\\{/.test(source)) {
-              // Add repositories to every declared repository handler. Do not
-              // infer availability from other blocks: buildscript.repositories
-              // is isolated from pluginManagement/project repositories.
-              source = source.replace(/repositories\\s*\\{/g, (block) =>
-                block + '\\n        google()\\n        mavenCentral()\\n        gradlePluginPortal()'
+            if (/repositories\s*\{/.test(source)) {
+              // Add the repositories to every handler. A repository in
+              // pluginManagement does not satisfy buildscript classpath
+              // dependency resolution in buildSrc.
+              source = source.replace(/repositories\s*\{/g, (match) =>
+                match + '\n        google()\n        mavenCentral()\n        gradlePluginPortal()'
               );
             } else {
-              // buildSrc resolves its buildscript classpath independently.
-              source += '\\nbuildscript {\\n    repositories {\\n        google()\\n        mavenCentral()\\n        gradlePluginPortal()\\n    }\\n}\\n';
+              source += '\nbuildscript {\n    repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }\n}\n';
             }
             await writeFile(file, source);
             console.log('Configured google(), mavenCentral() and gradlePluginPortal() in ' + file);
