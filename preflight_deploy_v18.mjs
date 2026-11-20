@@ -7,6 +7,15 @@ if (!['production', 'staging'].includes(target)) {
   console.error('Uso: node preflight_deploy_v18.mjs production|staging');
   process.exit(2);
 }
+
+// Workers Builds can run the configured deploy command for branch builds in
+// legacy preview mode. Never allow that production command to publish a
+// feature branch over the live Worker.
+if (process.env.WORKERS_CI === '1' && process.env.WORKERS_CI_BRANCH !== 'main') {
+  const branch = process.env.WORKERS_CI_BRANCH || '(desconocida)';
+  console.error(`\n⛔ Despliegue de producción bloqueado: Workers Builds branch "${branch}" no es main. Usa un comando Preview aislado para ramas de prueba.`);
+  process.exit(1);
+}
 const configPath = target === 'production' ? 'wrangler.production_v18.jsonc' : 'wrangler.staging.jsonc';
 if (!existsSync(configPath)) {
   console.error(`Falta ${configPath}. Para staging, copia wrangler.staging.template_v18.jsonc y sustituye el ID de KV y la URL.`);
