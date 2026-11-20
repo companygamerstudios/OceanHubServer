@@ -43,8 +43,14 @@ jobs:
           node-version: 22
       - name: Install Worker dependencies
         run: npm install --no-audit --no-fund
-      - name: Check Worker and push module syntax
-        run: npm run check:syntax
+      - name: Check main Worker syntax
+        run: node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js
+      - name: Check push server module syntax
+        run: node --check push-notifications.js
+      - name: Check push client module syntax
+        run: node --check push-client.js
+      - name: Check deployment preflight syntax
+        run: node --check preflight_deploy_v18.mjs
       - name: Run complete test suite
         run: npm test
       - name: Validate local Wrangler config without deployment
