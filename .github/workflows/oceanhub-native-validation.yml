@@ -235,7 +235,7 @@ jobs:
           PY
       - name: Build signed Android arm64 release APK
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        run: npm run tauri:android:build -- --release --target aarch64 --ci
+        run: npm run tauri:android:build -- --target aarch64 --ci
       - name: Verify release APK signature and package identity
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: bash
