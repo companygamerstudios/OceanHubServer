@@ -8038,9 +8038,9 @@ const BACKUP_MAX_KEYS = 450;
 const BACKUP_MAX_BYTES = 6 * 1024 * 1024;
 const BACKUP_PREFIX = 'oceanhub/backups/';
 const BACKUP_EXCLUDED_PREFIXES = [
-    'session_', 'oauth_state_', 'nonce_', 'otp_', 'reset_', 'password_reset_',
+    'session_', 'oauth_state_', 'nonce_', 'otp_', '2fa_temp_', 'reset_', 'pwd_reset_', 'password_reset_',
     'email_verify_', 'blacklist_', 'ip_failures_', 'pin_fail_', 'action_rate_',
-    'rate_limit_', 'lock_', 'security_nonce:'
+    'rate_limit_', 'rl_ip_', 'rl_key_', 'rl_action_', 'lock_', 'security_nonce:'
 ];
 function isTransientBackupKey(name) {
     const key = String(name || '');
