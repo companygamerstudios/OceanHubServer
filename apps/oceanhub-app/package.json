@@ -14,7 +14,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:android:init": "tauri android init",
-    "tauri:android:build": "tauri android build --apk"
+    "tauri:android:build": "tauri android build --apk",
+    "tauri:windows:build": "tauri build --bundles nsis"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.5"
