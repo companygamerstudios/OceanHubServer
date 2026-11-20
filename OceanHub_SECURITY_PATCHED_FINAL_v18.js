@@ -11110,6 +11110,12 @@ async function handleNotificationsPage(env, request) {
           <button class="btn" type="button" id="pushEnable">Activar notificaciones</button>
           <button class="btn ghost" type="button" id="pushDisable">Desactivar en este dispositivo</button>
         </div>
+        <div style="margin-top:14px;display:grid;gap:8px">
+          <strong>Qué quieres recibir</strong>
+          <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pushPrefMessages" style="width:auto"> Mensajes privados</label>
+          <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pushPrefSocial" style="width:auto"> Amigos, invitaciones y actividad social</label>
+          <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pushPrefSystem" style="width:auto"> Avisos de cuenta y sistema</label>
+        </div>
         <label id="pushAutostartWrap" hidden style="display:flex;align-items:center;gap:8px;margin-top:12px">
           <input type="checkbox" id="pushAutostart" style="width:auto">
           Iniciar OceanHub al encender Windows (opcional)
