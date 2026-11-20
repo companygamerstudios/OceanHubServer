@@ -1,64 +1,63 @@
-# OceanHub para Windows y Android
+# OceanHub para Android
 
-Las aplicaciones nativas de OceanHub son **contenedores Tauri 2 de la web completa**, no prototipos con módulos simulados ni una segunda implementación de la plataforma.
+OceanHub se distribuye en esta fase como **una aplicación Android instalable mediante APK**. No se generan instaladores de Windows ni clientes para otras plataformas.
 
-## Qué abre la aplicación
+## Qué instala el APK
 
-Windows y Android cargan el sitio oficial de OceanHub desde:
+- Nombre visible de la aplicación: **OceanHub**.
+- Identificador Android: `com.companygamerstudios.oceanhub`.
+- Icono de inicio: logo de OceanHub incluido en el paquete Android.
+- Arquitectura de esta entrega: **ARM64 (arm64-v8a)**.
+- Android mínimo: **Android 7.0 (API 24)**.
+- Versión inicial del paquete: `3.0.0-preview.1` (versionCode `3000000`).
+
+Al tocar el icono OceanHub, la aplicación abre la web completa oficial dentro de un WebView Android. No es un instalador de la página ni una maqueta con módulos falsos: las páginas, el inicio de sesión, los permisos y los datos siguen siendo los del Worker actual:
 
 `https://oceanhud.yoelenmanuelzorrilla.workers.dev/`
 
-El Worker actual sigue siendo el único backend y la única fuente de datos. La ruta raíz conserva el flujo web existente: si la persona no tiene sesión, el servidor la dirige a `/welcome`; después del acceso se muestran las páginas y funciones que correspondan a su cuenta y sus permisos.
+La aplicación requiere Internet. No ofrece un modo offline ni crea un backend paralelo. La sesión queda guardada en el WebView de OceanHub y no se comparte automáticamente con Chrome u otro navegador.
 
-Esto incluye las rutas reales que ya ofrece la web, como Home, perfiles, comunidad/Friends, notificaciones, Ocean Suite, Air Flow, Market, Creator, páginas legales y paneles autorizados. La aplicación no inventa pantallas ni datos para esos módulos.
+## Instalar en un teléfono
 
-## Diferencias por dispositivo
+1. Descarga el archivo `OceanHub-Android-arm64-preview.apk`.
+2. Abre **Descargas** o el administrador de archivos y toca el APK.
+3. Si Android lo solicita, permite la instalación desde esa aplicación (por ejemplo, Chrome o Archivos).
+4. Pulsa **Instalar** y luego **Abrir**.
+5. Busca **OceanHub** en el cajón de aplicaciones. El paquete aparece con el identificador `com.companygamerstudios.oceanhub`.
 
-- **Windows:** ventana de escritorio redimensionable, con el sitio completo dentro de WebView2.
-- **Android:** ventana móvil de pantalla completa, con las páginas web servidas al tamaño disponible y controles táctiles del WebView.
-- Ambas plataformas usan las mismas rutas, reglas de autorización, cuenta y Worker. La sesión de la app queda en el almacenamiento de su propio WebView y no se comparte automáticamente con Edge, Chrome ni otros navegadores.
+Si el teléfono no es ARM64, este APK no es el paquete correcto para ese dispositivo; en esta fase el workflow compila ARM64.
 
-El diseño responsive depende del frontend real del Worker. Antes de publicar hay que comprobar rutas principales en anchuras pequeñas (320, 360, 390 y 430 px), tablet y escritorio; corregir desbordes, menús, formularios, tablas y navegación donde sea necesario. No se debe declarar la adaptación móvil terminada solo porque la APK compile.
+## Construir localmente
 
-## Arquitectura y seguridad
-
-- La URL remota se fija en `src-tauri/tauri.conf.json` para los builds nativos y para `tauri dev`.
-- No se replica el HTML de todas las páginas ni se crea un backend de app separado.
-- El contenido web remoto no recibe permisos Tauri/IPC: el capability local mantiene solo los permisos mínimos. No se conceden permisos generales de filesystem, shell o comandos nativos al sitio.
-- Inicio de sesión, 2FA, roles y autorización siguen siendo responsabilidad de la web y el Worker. No se guarda una contraseña o token en el frontend de la app.
-- La aplicación requiere Internet para cargar las funciones alojadas en el Worker. La pantalla local es solo una ayuda de diagnóstico/fallback; no es una copia offline del sitio.
-- Google/Discord OAuth, carga de archivos, cámara, micrófono, ventanas externas y pagos deben verificarse en los WebViews reales. Algunos proveedores bloquean OAuth dentro de WebViews embebidos; si ocurre, hay que abrir el acceso con el navegador del sistema y retornar mediante un callback/deep link validado antes de afirmar compatibilidad completa.
-
-## Requisitos y desarrollo
-
-- Node.js 22.12 o superior.
-- Rust estable y herramientas de Tauri 2.
-- Windows: WebView2.
-- Android: Android Studio/SDK, NDK y JDK compatibles con Tauri.
-
-El comando de desarrollo Tauri carga la web configurada en `devUrl`:
+Requisitos: Node.js 22.12+, Rust estable, JDK 17, Android SDK/NDK y herramientas Tauri 2.
 
 ```sh
 npm install
-npm run tauri:dev
-```
-
-Build frontend y contenedor:
-
-```sh
-npm run build
-npm run tauri:build
-```
-
-Android:
-
-```sh
 npm run tauri:android:init
 npm run tauri:android:build
 ```
 
-## Estado de publicación
+El script `tauri:android:build` genera APK. Para reproducir la compilación de pruebas CI:
 
-Los builds previos solo demuestran que el contenedor puede compilar. No certifican autenticación, OAuth, pagos, cargas de archivos, comportamiento responsive, rendimiento ni accesibilidad de todos los módulos.
+```sh
+npm run tauri:android:build -- --debug --target aarch64 --ci
+```
 
-Los instaladores actuales de prueba son unsigned/debug. Para una release pública aún hacen falta pruebas de dispositivo, firma oficial por plataforma, identidad definitiva del paquete Android, estrategia de actualización firmada y validación del flujo OAuth. No publicar los builds de prueba como versiones finales.
+## Entrega desde GitHub Actions
+
+El workflow **OceanHub Android APK** compila el APK, valida con `aapt` el identificador, la etiqueta visible `OceanHub` y la actividad de inicio, y sube un único archivo `.apk` sin envolverlo en ZIP. Descarga el elemento llamado `OceanHub-Android-arm64-preview.apk` desde **Actions → OceanHub Android APK → Artifacts**.
+
+Los artefactos de Actions caducan según el periodo de retención del workflow (actualmente 30 días). El enlace del artefacto de Actions no es una publicación permanente.
+
+## Estado de seguridad y publicación
+
+Los builds actuales son **debug APK de prueba**, firmados con la clave de depuración del entorno de compilación. Sirven para instalar y probar en dispositivos, pero no son una release comercial ni deben subirse a Google Play. La firma debug generada por CI no debe tratarse como una clave estable para actualizaciones: una versión siguiente puede requerir desinstalar la anterior antes de instalar el nuevo APK, lo que borra sus datos locales.
+
+Para una release pública todavía hacen falta una clave Android release protegida en GitHub Secrets, firma verificable y estable, prueba de actualización sobre una versión anterior, política de privacidad/enlaces legales, pruebas completas en dispositivos y, para Google Play, la cuenta de Play Console y su proceso de publicación. No pongas claves privadas ni contraseñas en el repositorio o en el chat.
+
+## Seguridad del WebView
+
+- El contenido remoto conserva únicamente permisos del servidor; no obtiene permisos Tauri/IPC generales ni acceso libre al filesystem o al shell.
+- Autenticación, 2FA, roles, sesión y autorización siguen en el Worker.
+- OAuth Google/Discord, cargas de archivos, cámara, micrófono, enlaces externos y pagos requieren pruebas reales en WebView. Si un proveedor bloquea OAuth embebido, habrá que completar un retorno seguro al navegador/sistema antes de anunciar compatibilidad.
+- Revisar rutas y responsive en teléfonos reales: welcome/login, perfil, Friends, notificaciones, Ocean Suite, Air Flow, Market y Creator.
