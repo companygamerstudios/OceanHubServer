@@ -39,6 +39,8 @@ test("Android and Windows apps poll persisted notifications while enabled and fo
   assert.match(PUSH_CLIENT_JS, /showForegroundNotification/);
   assert.match(PUSH_CLIENT_JS, /Tienes un nuevo mensaje privado/);
   assert.match(PUSH_CLIENT_JS, /socket\.readyState === WebSocket\.OPEN/);
+  assert.match(PUSH_CLIENT_JS, /refreshForegroundPreferences/);
+  assert.match(PUSH_CLIENT_JS, /foregroundPreferences\[category\] !== false/);
 });
 
 test("remote native capabilities are restricted to the official OceanHub Worker origin", async () => {
