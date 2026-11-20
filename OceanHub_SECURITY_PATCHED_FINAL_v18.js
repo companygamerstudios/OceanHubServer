@@ -106,12 +106,20 @@ async function createOAuthState(env, provider) {
 async function consumeOAuthState(env, request, provider) {
     const state = getCookieValue(request, 'oauth_state');
     if (!state || !/^[a-f0-9]{64}$/i.test(state)) return false;
-    const raw = await env.STATS.get(`oauth_state_${state}`);
-    if (!raw) return false;
-    let data;
-    try { data = JSON.parse(raw); } catch { data = null; }
-    await env.STATS.delete(`oauth_state_${state}`);
-    return !!data && data.provider === provider && Date.now() - Number(data.createdAt || 0) <= OAUTH_STATE_TTL * 1000;
+    // State validation and deletion must be one serialized operation; otherwise parallel
+    // callbacks can both observe the same state and complete OAuth twice.
+    return await withKVLock(env, `oauth-state:${state.toLowerCase()}`, async () => {
+        const storageKey = `oauth_state_${state}`;
+        const raw = await env.STATS.get(storageKey);
+        if (!raw) return false;
+        let data;
+        try { data = JSON.parse(raw); } catch { data = null; }
+        await env.STATS.delete(storageKey);
+        return !!data &&
+            data.provider === provider &&
+            Number.isFinite(Number(data.createdAt)) &&
+            Date.now() - Number(data.createdAt) <= OAUTH_STATE_TTL * 1000;
+    });
 }
 
 function getRequestDevice(request) {
