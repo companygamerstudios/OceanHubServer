@@ -40,3 +40,8 @@ This PR is a first, bounded remediation pass. It does not claim all 100 checklis
 **Wrangler note:** item 53 of the supplied list assumes `secrets.required` is non-standard. I checked Cloudflare's current [Wrangler configuration documentation](https://developers.cloudflare.com/workers/wrangler/configuration/), which documents this field as supported and says deployment validates it. This branch therefore keeps the supported field instead of removing it. Item 52 remains a review decision: `keep_vars: true` preserves dashboard variables and can allow drift, so remove it only after checking the live dashboard settings.
 
 The CI suite is not a full pentest. It does not call Cloudflare production, list secret values, touch user KV data, rotate provider credentials, create new Cloudflare resources or deploy a Worker.
+
+
+## Segunda pasada — rama five-phase-execution
+
+Se añadieron Nonces atómicos con consumo en Durable Object ligado al hash de IP, limitación de emisión, controles cross-site para mutaciones con cookie, métodos POST para checkout/canje/cancelación, protección CSV, CSP Report-Only más estricta y ledger de eventos PayPal. Se añadió exportación de datos de cuenta sin hashes de contraseña, sal, semillas 2FA ni sesiones. El backup cifrado depende de R2 y de `BACKUP_ENCRYPTION_SECRET`; no se ha probado ni habilitado en producción. Marketplace sigue sin checkout/payout y la eliminación total de cuenta sigue pendiente de una política de retención y mapa de dependencias.
