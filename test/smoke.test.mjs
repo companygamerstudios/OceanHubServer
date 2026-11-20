@@ -392,6 +392,12 @@ test('backup encryption round-trips with an independent AES-256-GCM secret', asy
   );
 });
 
+test('backup snapshots exclude short-lived credentials and rate-limit state', () => {
+  for (const prefix of ['2fa_temp_', 'pwd_reset_', 'email_verify_', 'rl_ip_', 'rl_key_', 'rl_action_']) {
+    assert.ok(source.includes(`'${prefix}'`), `backup must exclude ${prefix}`);
+  }
+});
+
 test('backup restore remains opt-in, encrypted, R2-backed and additive only', () => {
   assert.match(source, /BACKUPS_R2_NOT_CONFIGURED/);
   assert.match(source, /encryptBackupPayload\(env, JSON\.stringify\(snapshot\)\)/);
