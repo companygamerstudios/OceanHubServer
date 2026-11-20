@@ -16,7 +16,7 @@ test('native build CI creates and validates only a directly downloadable Android
   assert.ok(nativeWorkflow.includes("com.companygamerstudios.oceanhub"));
   assert.ok(nativeWorkflow.includes("application-label:'OceanHub'"));
   assert.ok(nativeWorkflow.includes('launchable-activity'));
-  assert.ok(nativeWorkflow.includes('ic_launcher'));
+  assert.ok(nativeWorkflow.includes('application-icon-[0-9]+:'));
   assert.ok(nativeWorkflow.includes('actions/upload-artifact@v7'));
   assert.ok(nativeWorkflow.includes('archive: false'));
   assert.ok(nativeWorkflow.includes('OceanHub-Android-arm64-preview.apk'));
