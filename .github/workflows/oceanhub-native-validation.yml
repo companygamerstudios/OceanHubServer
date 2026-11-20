@@ -100,24 +100,34 @@ jobs:
             throw new Error('Firebase Android file does not match the OceanHub application id.');
           }
 
-          async function ensurePlugin(file, declaration) {
-            let source = await readFile(file, 'utf8');
-            if (source.includes('com.google.gms.google-services')) return;
-            const match = source.match(/plugins\s*\{/);
-            if (!match) throw new Error('Missing Gradle plugins block in ' + file);
-            const insertAt = match.index + match[0].length;
-            source = source.slice(0, insertAt) + '\n    ' + declaration + source.slice(insertAt);
-            await writeFile(file, source);
+          const rootGradle = 'src-tauri/gen/android/build.gradle.kts';
+          const appGradle = 'src-tauri/gen/android/app/build.gradle.kts';
+
+          // Tauri's generated root Gradle file may not contain a plugins {} block.
+          // Load Google Services through the buildscript classpath instead.
+          let rootSource = await readFile(rootGradle, 'utf8');
+          if (!rootSource.includes('com.google.gms:google-services')) {
+            const classpath = `buildscript {
+              repositories {
+                google()
+                mavenCentral()
+              }
+              dependencies {
+                classpath("com.google.gms:google-services:4.6.0")
+              }
+            }
+
+            `;
+            rootSource = classpath + rootSource;
+            await writeFile(rootGradle, rootSource);
           }
 
-          await ensurePlugin(
-            'src-tauri/gen/android/build.gradle.kts',
-            'id("com.google.gms.google-services") version "4.6.0" apply false'
-          );
-          await ensurePlugin(
-            'src-tauri/gen/android/app/build.gradle.kts',
-            'id("com.google.gms.google-services")'
-          );
+          // Apply the loaded plugin in the app module without assuming a plugins {} block.
+          let appSource = await readFile(appGradle, 'utf8');
+          if (!appSource.includes('com.google.gms.google-services')) {
+            appSource += '\\napply(plugin = "com.google.gms.google-services")\\n';
+            await writeFile(appGradle, appSource);
+          }
           console.log('Firebase Android configuration validated and attached to the generated app.');
           NODE
       - name: Configure Maven repositories for Android Gradle and buildSrc
