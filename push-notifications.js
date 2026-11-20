@@ -152,7 +152,13 @@ function getFirebaseWebConfig(env) {
   }
 }
 
-export async function handlePushApi(env, request, email) {
+async function runWithAccountLock(env, withLock, purpose, email, fn) {
+  if (typeof withLock !== "function") return fn();
+  const accountHash = await sha256(normalizedEmail(email));
+  return withLock(env, "push:" + purpose + ":" + accountHash, fn);
+}
+
+export async function handlePushApi(env, request, email, withLock = null) {
   const url = new URL(request.url);
   const path = url.pathname;
   const origin = request.headers.get("Origin");
@@ -191,34 +197,40 @@ export async function handlePushApi(env, request, email) {
       return json({ error: "El servicio de notificaciones aún no está configurado" }, 503);
     }
     const deviceId = await sha256(validation.platform + ":" + validation.token);
-    const current = await readDevices(env, email);
-    const next = current.filter(device => device?.id !== deviceId);
-    next.unshift({
-      id: deviceId,
-      platform: validation.platform,
-      token: encrypted,
-      createdAt: current.find(device => device?.id === deviceId)?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      userAgent: String(request.headers.get("User-Agent") || "unknown").slice(0, 180)
+    const registeredDevices = await runWithAccountLock(env, withLock, "devices", email, async () => {
+      const current = await readDevices(env, email);
+      const next = current.filter(device => device?.id !== deviceId);
+      next.unshift({
+        id: deviceId,
+        platform: validation.platform,
+        token: encrypted,
+        createdAt: current.find(device => device?.id === deviceId)?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        userAgent: String(request.headers.get("User-Agent") || "unknown").slice(0, 180)
+      });
+      await writeDevices(env, email, next);
+      return Math.min(next.length, MAX_DEVICES_PER_USER);
     });
-    await writeDevices(env, email, next);
-    return json({ ok: true, registeredDevices: Math.min(next.length, MAX_DEVICES_PER_USER) });
+    return json({ ok: true, registeredDevices });
   }
 
   if (path === "/api/push/unregister") {
     const platform = String(body?.platform || "").toLowerCase();
     const token = String(body?.token || "").trim();
-    if (!["android", "web"].includes(platform) || token.length < 40 || token.length > MAX_REGISTRATION_TOKEN_LENGTH) {
+    if (!["android", "web", "windows"].includes(platform) || token.length < 40 || token.length > MAX_REGISTRATION_TOKEN_LENGTH) {
       return json({ error: "Registro no válido" }, 400);
     }
     const deviceId = await sha256(platform + ":" + token);
-    const current = await readDevices(env, email);
-    await writeDevices(env, email, current.filter(device => device?.id !== deviceId));
+    await runWithAccountLock(env, withLock, "devices", email, async () => {
+      const current = await readDevices(env, email);
+      await writeDevices(env, email, current.filter(device => device?.id !== deviceId));
+    });
     return json({ ok: true });
   }
 
   if (path === "/api/push/preferences") {
-    return json({ ok: true, preferences: await writePreferences(env, email, body || {}) });
+    const preferences = await runWithAccountLock(env, withLock, "preferences", email, () => writePreferences(env, email, body || {}));
+    return json({ ok: true, preferences });
   }
 
   return json({ error: "Ruta no encontrada" }, 404);
@@ -273,12 +285,14 @@ async function getFirebaseAccessToken(env) {
   return { accessToken: data.access_token, projectId };
 }
 
-async function removeDeviceById(env, email, deviceId) {
-  const devices = await readDevices(env, email);
-  await writeDevices(env, email, devices.filter(device => device?.id !== deviceId));
+async function removeDeviceById(env, email, deviceId, withLock = null) {
+  await runWithAccountLock(env, withLock, "devices", email, async () => {
+    const devices = await readDevices(env, email);
+    await writeDevices(env, email, devices.filter(device => device?.id !== deviceId));
+  });
 }
 
-async function sendFcmToDevice(env, email, device, notification) {
+async function sendFcmToDevice(env, email, device, notification, withLock = null) {
   const { accessToken, projectId } = await getFirebaseAccessToken(env);
   const token = await decryptPushToken(env, device.token);
   const href = safeHref(notification.href);
@@ -324,7 +338,7 @@ async function sendFcmToDevice(env, email, device, notification) {
   const error = await response.json().catch(() => ({}));
   const details = Array.isArray(error?.error?.details) ? error.error.details : [];
   const errorCode = details.map(item => item?.errorCode).find(Boolean) || "";
-  if (response.status === 404 || errorCode === "UNREGISTERED") await removeDeviceById(env, email, device.id);
+  if (response.status === 404 || errorCode === "UNREGISTERED") await removeDeviceById(env, email, device.id, withLock);
   console.warn("FCM delivery failed:", response.status, errorCode || "provider_error");
   return false;
 }
@@ -348,7 +362,7 @@ async function sendWindowsSocketEvent(env, email, notification) {
   if (!response.ok) throw new Error("Push relay returned HTTP " + response.status);
 }
 
-export async function sendPushToUser(env, email, notification) {
+export async function sendPushToUser(env, email, notification, withLock = null) {
   try {
     const preferences = await readPreferences(env, email);
     const category = categoryForType(notification?.type);
@@ -365,7 +379,7 @@ export async function sendPushToUser(env, email, notification) {
     if (devices.length && env.FIREBASE_SERVICE_ACCOUNT_JSON && env.PUSH_TOKEN_ENCRYPTION_SECRET) {
       for (const device of devices) {
         if (device?.platform !== "android" && device?.platform !== "web") continue;
-        jobs.push(sendFcmToDevice(env, email, device, notification).catch(error => {
+        jobs.push(sendFcmToDevice(env, email, device, notification, withLock).catch(error => {
           console.warn("FCM dispatch unavailable:", error?.message || error);
         }));
       }
