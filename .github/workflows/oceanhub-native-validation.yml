@@ -95,6 +95,37 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Initialize Tauri Android project
         run: npm run tauri:android:init -- --ci
+      - name: Configure public repositories for generated Android buildSrc
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          import { access } from 'node:fs/promises';
+
+          const candidates = [
+            'src-tauri/gen/android/buildSrc/build.gradle.kts',
+            'src-tauri/gen/android/buildSrc/build.gradle'
+          ];
+          let patched = false;
+          for (const file of candidates) {
+            try { await access(file); } catch { continue; }
+            let source = await readFile(file, 'utf8');
+            if (!/repositories\\s*\\{/.test(source)) {
+              source += '\\nrepositories {\\n    google()\\n    mavenCentral()\\n    gradlePluginPortal()\\n}\\n';
+            } else {
+              source = source.replace(/repositories\\s*\\{/, (block) => {
+                const lines = [];
+                if (!/\\bgoogle\\(\\)/.test(source)) lines.push('    google()');
+                if (!/\\bmavenCentral\\(\\)/.test(source)) lines.push('    mavenCentral()');
+                return lines.length ? block + '\\n' + lines.join('\\n') : block;
+              });
+            }
+            await writeFile(file, source);
+            console.log('Configured Google Maven + Maven Central in ' + file);
+            patched = true;
+          }
+          if (!patched) throw new Error('Generated Android buildSrc Gradle file was not found.');
+          NODE
       - name: Build arm64 debug APK
         run: npm run tauri:android:build -- --debug --target aarch64 --ci
       - name: Verify APK output exists
