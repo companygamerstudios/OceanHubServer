@@ -252,6 +252,14 @@ test('Friends now uses low-latency presence snapshots and refreshes without relo
   assert.ok(source.includes("communityRemovePresence(env, me.email)"));
 });
 
+test('Friends presence fallback reads the friend heartbeat and never discloses invisible mode', () => {
+  assert.ok(source.includes("else isOnline = !!(await env.STATS.get(await communityPresenceKey(publicFriend.email)));"));
+  assert.equal(source.includes("else isOnline = !!(await env.STATS.get(await communityPresenceKey(env, publicFriend.email)));"), false);
+  assert.ok(source.includes("if (status.status === 'invisible') isOnline = false;"));
+  assert.ok(source.includes("const visibleStatus = isOnline ? status.status : 'offline';"));
+  assert.ok(source.includes("status: visibleStatus,"));
+});
+
 test('private chat shows each sender avatar and name, and typing state uses the Durable Object', () => {
   assert.ok(source.includes('class="message-avatar"'));
   assert.ok(source.includes('class="message-author"'));

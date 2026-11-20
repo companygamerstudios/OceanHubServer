@@ -9767,12 +9767,14 @@ async function handleCommunityPresenceHeartbeat(env, request) {
             const status = await communityGetStatus(env, publicFriend.email);
             let isOnline;
             if (onlineMap) isOnline = onlineMap[hashes[i]] === true;
-            else isOnline = !!(await env.STATS.get(await communityPresenceKey(env, publicFriend.email)));
+            else isOnline = !!(await env.STATS.get(await communityPresenceKey(publicFriend.email)));
             if (status.status === 'invisible') isOnline = false;
+            // Invisible and offline accounts expose only an offline state to viewers.
+            const visibleStatus = isOnline ? status.status : 'offline';
             friends.push({
                 ...publicFriend,
                 online: isOnline,
-                status: status.status,
+                status: visibleStatus,
                 status_label: isOnline ? (OH_STATUS_LABELS[status.status] || 'Disponible') : 'Desconectado',
                 note: isOnline ? status.note : ''
             });
