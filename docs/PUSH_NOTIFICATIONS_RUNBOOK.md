@@ -6,9 +6,9 @@ This branch adds the push-notification implementation without changing the produ
 
 The existing notification inbox remains the source of truth. socialPushNotif() saves the notification to STATS first, then attempts remote delivery. A Firebase or device-delivery failure must not undo a saved DM or in-app notification.
 
-- **Android:** Firebase Cloud Messaging HTTP v1 delivers to an FCM token registered by the Android Tauri app.
+- **Android:** Firebase Cloud Messaging HTTP v1 delivers to an FCM token registered by the Android Tauri app. While the app is open, the native client also polls the authenticated notification inbox every 15 seconds and presents newly persisted items with the native notification plugin.
 - **Web (Chrome/Edge and other supported browsers):** Firebase Web Messaging uses the root-scoped /firebase-messaging-sw.js service worker and the VAPID public key.
-- **Windows Tauri EXE:** the installed app uses a same-origin authenticated WebSocket through the existing KV_LOCKER Durable Object and Tauri's native notification plugin. Closing the main window hides the app in the Windows notification area (system tray); the process remains active while it is in the tray.
+- **Windows Tauri EXE:** the installed app prefers a same-origin authenticated WebSocket through the existing KV_LOCKER Durable Object and Tauri's native notification plugin. If the live socket is unavailable, the app polls the authenticated notification inbox every 15 seconds while enabled. Closing the main window hides the app in the Windows notification area (system tray); the process remains active while it is in the tray.
 
 The Windows design deliberately does **not** claim push delivery after the user exits OceanHub from the tray, kills its process, signs out of Windows or powers the PC off. Reliable delivery after process termination would require a separate Windows Push Notification Services (WNS) design with an eligible app identity/packaging and Microsoft Entra/Azure setup. The current NSIS installer branch is still separate.
 
@@ -96,7 +96,7 @@ Windows additionally offers an optional “start OceanHub when Windows starts”
 ## Platform limitations to test
 
 - Android 13+ requires notification permission. Android can stop delivery after a user force-stops the app in system settings; the user must reopen the app. Battery-management policies may also delay delivery.
-- Android FCM background notification messages are displayed by the OS. The current Tauri FCM plugin's Android service is token-focused and does not surface foreground message callbacks to the WebView; while OceanHub is open and in the foreground, the in-app inbox remains available, but a native toast for that foreground case needs a further native callback/handler.
+- Android FCM background notification messages are displayed by the OS. The current Tauri FCM plugin is token-focused and does not surface foreground message callbacks to the WebView; the foreground native client therefore uses the persisted inbox polling fallback. This requires the app process and authenticated session to remain active.
 - Browser Web Push requires HTTPS, a supported browser, an installed/available service worker and explicit notification permission. Browser/OS settings can suppress notifications.
 - Windows uses close-to-tray, not a Windows service. A WebSocket heartbeat detects a stale connection and retries it. The notification process must remain running. “Salir de OceanHub” exits the process and ends live push reception.
 
@@ -106,8 +106,8 @@ Windows additionally offers an optional “start OceanHub when Windows starts”
 2. npm run check:syntax checks the Worker and both push modules.
 3. npm test runs the full existing and push-specific test suite.
 4. The Worker validation workflow performs a Wrangler dry run only; it does not deploy.
-5. Android CI builds the debug ARM64 APK; release signing/publishing steps remain gated to main.
-6. Windows CI runs a native Tauri compile check; it does not create or publish an EXE.
+5. Android CI builds the ARM64 preview APK; release signing/publishing steps remain gated to main.
+6. Windows CI compiles the native app and builds an NSIS x64 installer artifact on the feature branch; it does not publish a production release.
 7. Manual integration testing with two OceanHub accounts is required after the secrets are configured: foreground/background Android, Chrome/Edge browser closed, Windows close-to-tray, user-disabled categories, sign-out and multi-device unregister.
 
 No Firebase private key, Cloudflare secret, Android keystore or production token belongs in this repository.
