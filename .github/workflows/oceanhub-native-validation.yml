@@ -103,22 +103,42 @@ jobs:
           const rootGradle = 'src-tauri/gen/android/build.gradle.kts';
           const appGradle = 'src-tauri/gen/android/app/build.gradle.kts';
 
-          // Tauri's generated root Gradle file may not contain a plugins {} block.
-          // Load Google Services through the buildscript classpath instead.
+          // Add Google Services to the existing root buildscript when one is present.
+          // Never prepend a second buildscript block: Tauri templates may already define one.
           let rootSource = await readFile(rootGradle, 'utf8');
           if (!rootSource.includes('com.google.gms:google-services')) {
-            const classpath = `buildscript {
-              repositories {
-                google()
-                mavenCentral()
+            const findBlockEnd = (source, openIndex) => {
+              let depth = 0;
+              for (let i = openIndex; i < source.length; i += 1) {
+                if (source[i] === '{') depth += 1;
+                if (source[i] === '}') {
+                  depth -= 1;
+                  if (depth === 0) return i;
+                }
               }
-              dependencies {
-                classpath("com.google.gms:google-services:4.6.0")
+              throw new Error('Unbalanced Gradle block while configuring Google Services.');
+            };
+
+            const buildscriptMatch = /\\bbuildscript\\s*\\{/.exec(rootSource);
+            if (!buildscriptMatch) {
+              rootSource = 'buildscript {\\n    repositories { google(); mavenCentral() }\\n    dependencies { classpath("com.google.gms:google-services:4.6.0") }\\n}\\n\\n' + rootSource;
+            } else {
+              const buildscriptOpen = rootSource.indexOf('{', buildscriptMatch.index);
+              const buildscriptClose = findBlockEnd(rootSource, buildscriptOpen);
+              const buildscriptSource = rootSource.slice(buildscriptOpen + 1, buildscriptClose);
+              const dependenciesMatch = /\\bdependencies\\s*\\{/.exec(buildscriptSource);
+              if (dependenciesMatch) {
+                const dependenciesOpen = buildscriptOpen + 1 + buildscriptSource.indexOf('{', dependenciesMatch.index);
+                const dependenciesClose = findBlockEnd(rootSource, dependenciesOpen);
+                rootSource = rootSource.slice(0, dependenciesClose) +
+                  '\\n        classpath("com.google.gms:google-services:4.6.0")\\n      ' +
+                  rootSource.slice(dependenciesClose);
+              } else {
+                rootSource = rootSource.slice(0, buildscriptClose) +
+                  '\\n    dependencies { classpath("com.google.gms:google-services:4.6.0") }\\n' +
+                  rootSource.slice(buildscriptClose);
               }
             }
-
-            `;
-            rootSource = classpath + rootSource;
             await writeFile(rootGradle, rootSource);
           }
 
