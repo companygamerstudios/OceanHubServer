@@ -99,8 +99,7 @@ jobs:
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import { readFile, writeFile } from 'node:fs/promises';
-          import { access } from 'node:fs/promises';
+          import { readFile, writeFile, access } from 'node:fs/promises';
 
           const candidates = [
             'src-tauri/gen/android/buildSrc/build.gradle.kts',
@@ -110,14 +109,14 @@ jobs:
           for (const file of candidates) {
             try { await access(file); } catch { continue; }
             let source = await readFile(file, 'utf8');
-            if (!/repositories\\s*\\{/.test(source)) {
-              source += '\\nrepositories {\\n    google()\\n    mavenCentral()\\n    gradlePluginPortal()\\n}\\n';
+            if (!/repositories\s*\{/.test(source)) {
+              source += '\nrepositories {\n    google()\n    mavenCentral()\n    gradlePluginPortal()\n}\n';
             } else {
-              source = source.replace(/repositories\\s*\\{/, (block) => {
+              source = source.replace(/repositories\s*\{/, (block) => {
                 const lines = [];
-                if (!/\\bgoogle\\(\\)/.test(source)) lines.push('    google()');
-                if (!/\\bmavenCentral\\(\\)/.test(source)) lines.push('    mavenCentral()');
-                return lines.length ? block + '\\n' + lines.join('\\n') : block;
+                if (!/\bgoogle\(\)/.test(source)) lines.push('    google()');
+                if (!/\bmavenCentral\(\)/.test(source)) lines.push('    mavenCentral()');
+                return lines.length ? block + '\n' + lines.join('\n') : block;
               });
             }
             await writeFile(file, source);
