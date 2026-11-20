@@ -28,16 +28,17 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis",
-      "msi"
-    ],
+    "targets": [],
     "category": "SocialNetworking",
     "shortDescription": "La aplicación independiente de OceanHub",
     "longDescription": "OceanHub es el espacio gamer y social de COMPANY GAMER STUDIOS.",
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"
-    ]
+    ],
+    "android": {
+      "minSdkVersion": 24,
+      "versionCode": 3000000
+    }
   }
 }
