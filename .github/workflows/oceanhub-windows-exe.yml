@@ -1,0 +1,81 @@
+name: OceanHub Windows EXE
+
+on:
+  push:
+    branches: ["feat/oceanhub-push-notifications"]
+    paths:
+      - "apps/oceanhub-app/**"
+      - ".github/workflows/oceanhub-windows-exe.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "apps/oceanhub-app/**"
+      - ".github/workflows/oceanhub-windows-exe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oceanhub-windows-exe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-exe:
+    name: Windows x64 installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/oceanhub-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/oceanhub-app/package-lock.json
+
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install app dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build OceanHub Windows NSIS installer
+        run: npm run tauri:build -- --bundles nsis --ci
+
+      - name: Verify installer and executable
+        shell: pwsh
+        run: |
+          $installerDir = "src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem -Path $installerDir -Filter "*.exe" -File | Select-Object -First 1
+          if (-not $installer) {
+            throw "No se generó el instalador NSIS .exe de OceanHub."
+          }
+
+          $appExe = "src-tauri/target/release/oceanhub_app.exe"
+          if (-not (Test-Path $appExe)) {
+            throw "No se generó el ejecutable principal de OceanHub."
+          }
+
+          New-Item -ItemType Directory -Force -Path "release" | Out-Null
+          Copy-Item $installer.FullName "release/OceanHub-Setup-Windows-x64.exe"
+          if ((Get-Item "release/OceanHub-Setup-Windows-x64.exe").Length -le 0) {
+            throw "El instalador está vacío."
+          }
+
+          Get-FileHash "release/OceanHub-Setup-Windows-x64.exe" -Algorithm SHA256
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: OceanHub-Windows-x64-EXE
+          path: apps/oceanhub-app/release/OceanHub-Setup-Windows-x64.exe
+          if-no-files-found: error
+          retention-days: 30
