@@ -25,6 +25,8 @@ test("the Android Tauri app opens the complete official OceanHub website", async
 
 test("the Android build validates the installed app identity and launcher entry", async () => {
   const workflow = await read(".github/workflows/oceanhub-native-validation.yml");
+  const cargo = await read("apps/oceanhub-app/src-tauri/Cargo.toml");
+  assert.match(cargo, /\[profile\.dev\][\s\S]*debug = 0[\s\S]*strip = "debuginfo"/);
 
   assert.match(workflow, /com\.companygamerstudios\.oceanhub/);
   assert.match(workflow, /application-label:'OceanHub'/);
