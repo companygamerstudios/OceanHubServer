@@ -29,7 +29,7 @@ Legend: `[x]` verified complete, `[~]` in progress, `[ ]` pending.
 - [ ] Publish verified native artifacts as GitHub Release assets and link them from `/download`.
 
 ## W2 — Social Evolution
-- [~] Map current privacy, blocks, friends, messaging, notifications and moderation data models; the initial route/source review is underway.
+- [x] Map current Friends/blocks/DM/presence/Feed/reports/notifications behavior from the existing Worker handlers; record compatibility defaults and gaps in `SPEC-social-evolution.md`.
 - [x] Fix the Friends presence KV fallback key and prevent the API from exposing the literal `invisible` status to other users (PR #22; syntax, regression suite and Wrangler dry-run passed).
 - [ ] Add backward-compatible privacy preferences and tests.
 - [ ] Implement message requests with block/privacy/rate-limit enforcement.
