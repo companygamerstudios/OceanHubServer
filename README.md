@@ -65,3 +65,8 @@ Before production release, manually complete and record: rotate/rebind admin TOT
 ## OceanHub Platform Suite
 
 The integrated Ocean Suite entry point is `/ocean`. It brings together the existing community, notifications, events, XP, creator and Air Flow modules, and adds a Command Center, feature controls, private support tickets, a moderated seller catalogue, account session protection, reputation/achievements, a Developer Hub and a Launcher. See [docs/ocean-suite.md](docs/ocean-suite.md) for routes, feature mapping, OceanHub Verified (blue public-figure and yellow company/affiliation badges), and deliberate payment/backup safety limits. New changes are proposed on a feature branch and must pass the quality workflow before merging.
+
+
+## Ejecución de cinco fases — revisión segura
+
+La rama de trabajo `feat/oceanhub-five-phase-execution` recoge cambios incrementales de seguridad, exportación/backup, pagos, privacidad social y OceanHub 3.0. Consulta [docs/FIVE_PHASE_EXECUTION.md](docs/FIVE_PHASE_EXECUTION.md) para el estado real por fase y los contratos de compatibilidad, y [docs/BACKUP_RUNBOOK.md](docs/BACKUP_RUNBOOK.md) para los requisitos del backup R2. Los cambios todavía no se han desplegado en producción.
