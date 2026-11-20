@@ -8,6 +8,7 @@ const FIREBASE_SDK_VERSION = "13.4.0";
 const FIREBASE_PROJECT_ID = "oceanhub-91e40";
 
 let accessTokenCache = null;
+let accessTokenPromise = null;
 const cryptoKeyCache = new Map();
 
 function json(data, status = 200, headers = {}) {
@@ -276,34 +277,55 @@ async function getFirebaseAccessToken(env) {
   if (accessTokenCache && accessTokenCache.projectId === projectId && accessTokenCache.expiresAt > Date.now() + 60_000) {
     return { accessToken: accessTokenCache.accessToken, projectId };
   }
-
-  const now = Math.floor(Date.now() / 1000);
-  const unsigned = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" })) + "." +
-    base64Url(JSON.stringify({ iss: clientEmail, scope: FIREBASE_SCOPE, aud: FIREBASE_TOKEN_URL, iat: now, exp: now + 3600 }));
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToBytes(serviceAccount.private_key),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
-  const assertion = unsigned + "." + base64Url(new Uint8Array(signature));
-  const response = await fetch(FIREBASE_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion })
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || typeof data.access_token !== "string") {
-    throw new Error("Google OAuth no pudo emitir el token de acceso (HTTP " + response.status + ")");
+  if (accessTokenPromise) {
+    try {
+      const shared = await accessTokenPromise;
+      if (shared.projectId === projectId && shared.expiresAt > Date.now() + 60_000) {
+        return { accessToken: shared.accessToken, projectId };
+      }
+    } catch (_) {
+      // A failed shared exchange is retried once by the next caller.
+    }
   }
-  accessTokenCache = {
-    projectId,
-    accessToken: data.access_token,
-    expiresAt: Date.now() + Math.max(60, Number(data.expires_in) || 3600) * 1000
-  };
-  return { accessToken: data.access_token, projectId };
+
+  const pending = (async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const unsigned = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" })) + "." +
+      base64Url(JSON.stringify({ iss: clientEmail, scope: FIREBASE_SCOPE, aud: FIREBASE_TOKEN_URL, iat: now, exp: now + 3600 }));
+    const key = await crypto.subtle.importKey(
+      "pkcs8",
+      pemToBytes(serviceAccount.private_key),
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+    const assertion = unsigned + "." + base64Url(new Uint8Array(signature));
+    const response = await fetch(FIREBASE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
+      signal: AbortSignal.timeout(8000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || typeof data.access_token !== "string") {
+      throw new Error("Google OAuth no pudo emitir el token de acceso (HTTP " + response.status + ")");
+    }
+    const result = {
+      projectId,
+      accessToken: data.access_token,
+      expiresAt: Date.now() + Math.max(60, Number(data.expires_in) || 3600) * 1000
+    };
+    accessTokenCache = result;
+    return result;
+  })();
+  accessTokenPromise = pending;
+  try {
+    const result = await pending;
+    return { accessToken: result.accessToken, projectId };
+  } finally {
+    if (accessTokenPromise === pending) accessTokenPromise = null;
+  }
 }
 
 async function removeDeviceById(env, email, deviceId, withLock = null) {
@@ -356,7 +378,8 @@ async function sendFcmToDevice(env, email, device, notification, withLock = null
   const response = await fetch("https://fcm.googleapis.com/v1/projects/" + encodeURIComponent(projectId) + "/messages:send", {
     method: "POST",
     headers: { "Authorization": "Bearer " + accessToken, "Content-Type": "application/json" },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ message }),
+    signal: AbortSignal.timeout(8000)
   });
   if (response.ok) return true;
   const error = await response.json().catch(() => ({}));
