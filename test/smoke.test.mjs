@@ -13,7 +13,10 @@ test('native build CI creates and validates only a directly downloadable Android
   assert.ok(nativeWorkflow.includes('Configure Maven repositories for Android Gradle and buildSrc'));
   assert.ok(nativeWorkflow.includes('mavenCentral()'));
   assert.ok(nativeWorkflow.includes('google()'));
-  assert.ok(nativeWorkflow.includes('source.replace(/repositories'));
+  assert.ok(nativeWorkflow.includes("const marker = 'pluginManagement {'"));
+  assert.ok(nativeWorkflow.includes("const repoMarker = 'repositories {';"));
+  assert.ok(nativeWorkflow.includes('const remainder = source.slice(0, start) + source.slice(close + 1);'));
+  assert.ok(nativeWorkflow.includes('Gradle requires pluginManagement before all executable settings statements.'));
   assert.ok(nativeWorkflow.includes('src-tauri/gen/android/buildSrc/settings.gradle.kts'));
   assert.ok(nativeWorkflow.includes('Build installable Android arm64 APK'));
   assert.ok(nativeWorkflow.includes("com.companygamerstudios.oceanhub"));
