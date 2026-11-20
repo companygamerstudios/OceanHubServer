@@ -57,7 +57,6 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_autostart::Builder::new()
-            .args([])
             .app_name("OceanHub")
             .build(),
     );
