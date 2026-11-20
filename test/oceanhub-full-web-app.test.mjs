@@ -20,7 +20,7 @@ test("the Android Tauri app opens the complete official OceanHub website", async
   assert.ok(config.bundle.icon.includes("icons/icon.png"));
   assert.deepEqual(config.bundle.targets, []);
   assert.equal(config.bundle.android.minSdkVersion, 24);
-  assert.equal(config.bundle.android.versionCode, 3000000);
+  assert.equal(config.bundle.android.versionCode, 3000001);
 });
 
 test("the Android build validates the installed app identity and launcher entry", async () => {
