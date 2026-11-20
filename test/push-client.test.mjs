@@ -14,7 +14,7 @@ test("push client unregisters only this device before following the logout link"
   assert.match(PUSH_CLIENT_JS, /destination\.pathname !== "\/logout"/);
   assert.match(PUSH_CLIENT_JS, /\/api\/push\/unregister/);
   assert.match(PUSH_CLIENT_JS, /keepalive: true/);
-  assert.match(PUSH_CLIENT_JS, /plugin:fcm\\|delete_token/);
+  assert.match(PUSH_CLIENT_JS, /plugin:fcm\|delete_token/);
   assert.match(PUSH_CLIENT_JS, /messagingModule\.deleteToken\(messaging\)/);
   assert.match(PUSH_CLIENT_JS, /setLocalFlag\("oh_push_android_enabled", false\)/);
   assert.match(PUSH_CLIENT_JS, /setLocalFlag\("oh_push_windows_enabled", false\)/);
@@ -30,7 +30,7 @@ test("Windows push client monitors the live connection and reconnects after fail
 
 test("Android FCM permission handling accepts the plugin's granted string state", () => {
   assert.match(PUSH_CLIENT_JS, /permission === "granted"/);
-  assert.match(PUSH_CLIENT_JS, /plugin:fcm\\|request_permissions/);
+  assert.match(PUSH_CLIENT_JS, /plugin:fcm\|request_permissions/);
 });
 
 test("Android and Windows apps poll persisted notifications while enabled and foreground-capable", () => {
