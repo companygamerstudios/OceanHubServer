@@ -10,6 +10,7 @@ import {
   handleFirebaseMessagingServiceWorker,
   handlePushApi,
   handlePushSocket,
+  sanitizePushNotification,
   validatePushRegistration
 } from "../push-notifications.js";
 
@@ -43,6 +44,26 @@ function makeRequest(path, { method = "GET", body, origin = "https://oceanhub.te
 
 const EMAIL = "push-test@example.invalid";
 const ENCRYPTION_SECRET = "test-only-secret-with-at-least-32-characters-not-production";
+
+
+test("push payloads never include private-message previews", () => {
+  const privateMessage = sanitizePushNotification({
+    type: "dm",
+    title: "Mensaje de @yoel",
+    body: "texto confidencial que no debe ir al lock screen",
+    href: "/messages/yoel"
+  });
+  assert.equal(privateMessage.body, "Tienes un nuevo mensaje privado. Abre OceanHub para leerlo.");
+  assert.equal(privateMessage.href, "/messages/yoel");
+
+  const social = sanitizePushNotification({
+    type: "friend_request",
+    title: "Solicitud de amistad",
+    body: "Tienes una solicitud de amistad",
+    href: "/friends"
+  });
+  assert.equal(social.body, "Tienes una solicitud de amistad");
+});
 
 test("push registration accepts only supported platforms and valid opaque tokens", () => {
   assert.deepEqual(validatePushRegistration({ platform: "android", token: "a".repeat(64) }), {
