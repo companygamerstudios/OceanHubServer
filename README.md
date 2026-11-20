@@ -70,3 +70,8 @@ The integrated Ocean Suite entry point is `/ocean`. It brings together the exist
 ## Ejecución de cinco fases — revisión segura
 
 La rama de trabajo `feat/oceanhub-five-phase-execution` recoge cambios incrementales de seguridad, exportación/backup, pagos, privacidad social y OceanHub 3.0. Consulta [docs/FIVE_PHASE_EXECUTION.md](docs/FIVE_PHASE_EXECUTION.md) para el estado real por fase y los contratos de compatibilidad, y [docs/BACKUP_RUNBOOK.md](docs/BACKUP_RUNBOOK.md) para los requisitos del backup R2. Los cambios todavía no se han desplegado en producción.
+
+
+### Pruebas de compatibilidad del cliente
+
+Usa [docs/CLIENT_V8_TEST_GUIDE.md](docs/CLIENT_V8_TEST_GUIDE.md) para probar el contrato HMAC del cliente OceanHub V8: `GET /get-nonce`, firma `key:timestamp:nonce` y `POST /verify`. El repositorio incorpora además una prueba automatizada del flujo con un Durable Object simulado. No se requieren secretos reales para ejecutar la suite.
