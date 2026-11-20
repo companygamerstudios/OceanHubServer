@@ -43,10 +43,12 @@ test("Android and Windows apps poll persisted notifications while enabled and fo
 
 test("remote native capabilities are restricted to the official OceanHub Worker origin", async () => {
   const base = new URL("../apps/oceanhub-app/src-tauri/capabilities/", import.meta.url);
-  const android = JSON.parse(await readFile(new URL("remote-android.json", base), "utf8"));
-  const windows = JSON.parse(await readFile(new URL("remote-windows.json", base), "utf8"));
+  const android = JSON.parse(await readFile(new URL("remote-oceanhub-android-push.json", base), "utf8"));
+  const windows = JSON.parse(await readFile(new URL("remote-oceanhub-windows-push.json", base), "utf8"));
   const trustedOrigin = ["https://oceanhud.yoelenmanuelzorrilla.workers.dev/**"];
 
+  assert.equal(android.local, false);
+  assert.equal(windows.local, false);
   assert.deepEqual(android.remote.urls, trustedOrigin);
   assert.deepEqual(windows.remote.urls, trustedOrigin);
   assert.deepEqual(android.platforms, ["android"]);
@@ -54,7 +56,7 @@ test("remote native capabilities are restricted to the official OceanHub Worker 
   assert.ok(android.permissions.includes("fcm:default"));
   assert.ok(android.permissions.includes("notification:default"));
   assert.ok(windows.permissions.includes("notification:default"));
-  assert.ok(windows.permissions.includes("autostart:allow-enable"));
+  assert.ok(windows.permissions.includes("autostart:default"));
   assert.ok(!android.permissions.some(permission => permission.startsWith("shell:")));
   assert.ok(!windows.permissions.some(permission => permission.startsWith("shell:")));
 });
