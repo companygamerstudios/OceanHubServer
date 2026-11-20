@@ -7,6 +7,7 @@ const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
 const local = JSON.parse(await readFile(new URL('../wrangler.local.jsonc', import.meta.url), 'utf8'));
 const nativeWorkflow = await readFile(new URL('../.github/workflows/oceanhub-native-validation.yml', import.meta.url), 'utf8');
+const deployWorkflow = await readFile(new URL('../.github/workflows/deploy-production.yml', import.meta.url), 'utf8');
 
 test('native build CI creates and validates only a directly downloadable Android APK', () => {
   assert.ok(nativeWorkflow.includes('Configure public repositories for generated Android buildSrc'));
@@ -22,6 +23,14 @@ test('native build CI creates and validates only a directly downloadable Android
   assert.ok(nativeWorkflow.includes('OceanHub-Android-arm64-preview.apk'));
   assert.equal(nativeWorkflow.includes('windows-test-installers'), false);
   assert.equal(nativeWorkflow.includes('--bundles nsis'), false);
+});
+
+test('production deployment is restricted to main even when manually dispatched', () => {
+  assert.ok(deployWorkflow.includes('branches:\\n      - main'));
+  assert.ok(deployWorkflow.includes('refs/heads/main'));
+  assert.ok(deployWorkflow.includes('El despliegue de producción solo se permite desde main.'));
+  assert.ok(deployWorkflow.includes('actions/checkout@v7'));
+  assert.ok(deployWorkflow.includes('actions/setup-node@v7'));
 });
 
 test('PayPal mode accepts only explicit sandbox/live values', () => {
