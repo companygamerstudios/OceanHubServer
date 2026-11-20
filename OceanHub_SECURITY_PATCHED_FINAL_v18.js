@@ -1134,9 +1134,14 @@ export class KVLocker {
             const consumed = this.state.storage.transactionSync(() => {
                 const key = 'security_nonce:' + nonce;
                 const current = this.state.storage.kv.get(key);
-                if (current) this.state.storage.kv.delete(key);
-                if (!current || Number(current.expiresAt || 0) <= now) return false;
-                return timingSafeCompare(String(current.ipHash || ''), ipHash);
+                if (!current) return false;
+                if (Number(current.expiresAt || 0) <= now) {
+                    this.state.storage.kv.delete(key);
+                    return false;
+                }
+                if (!timingSafeCompare(String(current.ipHash || ''), ipHash)) return false;
+                this.state.storage.kv.delete(key);
+                return true;
             });
             return Response.json({ ok: consumed });
         }
@@ -2516,15 +2521,21 @@ async function handleResetPassword(env, request) {
 // ==================================================
 
 async function handleGetNonce(env, request) {
+    if (request.method !== 'GET') return jsonResponse({ error: 'Método no permitido' }, 405, { 'Allow': 'GET' });
     const ip = getClientIP(request);
+    if (!(await checkActionRateLimit(env, 'hmac-nonce-issue', ip, 60, 60))) {
+        return jsonResponse({ error: 'Demasiadas solicitudes de Nonce. Espera un minuto.' }, 429);
+    }
     const nonce = await getNonce(env, ip);
-    return jsonResponse({ nonce });
+    return jsonResponse({ nonce }, 200, { 'Cache-Control': 'no-store', 'Pragma': 'no-cache' });
 }
 
 async function handleVerify(env, request) {
     if (request.method !== 'POST') {
         return jsonResponse({ success: false, error: 'Usa POST con key, timestamp, nonce y hmac en el cuerpo' }, 405, { 'Allow': 'POST' });
     }
+    const declaredLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredLength > 16 * 1024) return jsonResponse({ success: false, error: 'Solicitud demasiado grande' }, 413);
     let body;
     try {
         const contentType = request.headers.get('Content-Type') || '';
@@ -3252,7 +3263,7 @@ async function handleGenerateBatch(env, url, request) {
 
 export function safeCsvCell(value) {
     let text = String(value ?? '');
-    if (/^[\\u0000-\\u0020]*[=+\\-@]/.test(text)) text = "'" + text;
+    if (/^[\u0000-\u0020]*[=+\-@]/.test(text)) text = "'" + text;
     return '"' + text.replace(/"/g, '""') + '"';
 }
 
@@ -8069,6 +8080,63 @@ async function writeEncryptedBackup(env, purpose = 'manual') {
     });
     return { key, entry_count: snapshot.entry_count, created_at: snapshot.created_at };
 }
+async function handleAccountExport(env, request) {
+    if (request.method !== 'GET') return jsonResponse({ error: 'Usa GET para exportar tus datos.' }, 405, { 'Allow': 'GET' });
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    const email = String(auth.user.email || '').toLowerCase();
+    try {
+        const safeProfile = { ...auth.user };
+        // Never export password material, TOTP seeds or session-control internals.
+        for (const field of ['passwordHash', 'salt', 'otp_secret', 'otp_last_counter', 'sessionVersion']) delete safeProfile[field];
+        const purchases = await getCompras(env, 1000, 0, { email });
+        const reseller = await getReseller(env, email);
+        const safeReseller = reseller ? {
+            role: reseller.role,
+            seller_id: reseller.seller_id,
+            username: reseller.username,
+            rank: getOceanSellerRank(reseller),
+            assigned_key_count: Array.isArray(reseller.claves_asignadas) ? reseller.claves_asignadas.length : 0,
+            sold_key_count: Array.isArray(reseller.claves_vendidas) ? reseller.claves_vendidas.length : 0
+        } : null;
+        const payload = {
+            format: 'OceanHubAccountExport',
+            version: 1,
+            generated_at: new Date().toISOString(),
+            scope: ['profile', 'purchases_and_keys', 'subscription', 'referral_summary', 'recent_login_history', 'seller_summary'],
+            profile: safeProfile,
+            purchases: purchases.compras,
+            purchases_total: purchases.total,
+            subscription: await getSuscripcionUsuario(env, email),
+            referral_summary: {
+                invited_accounts: (await getReferidosDe(env, email)).length,
+                earned_commission: await getComisionesDe(env, email)
+            },
+            recent_login_history: await getLoginHistory(env, email, 100),
+            seller_summary: safeReseller,
+            exclusions: [
+                'password hashes and salts',
+                'authenticator seeds and active sessions',
+                'private messages and other users personal data',
+                'operational security logs and fraud signals'
+            ]
+        };
+        return new Response(JSON.stringify(payload, null, 2), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Disposition': 'attachment; filename="oceanhub-account-export.json"',
+                'Cache-Control': 'no-store, private',
+                'Pragma': 'no-cache',
+                'X-Content-Type-Options': 'nosniff'
+            }
+        });
+    } catch (error) {
+        console.error('Account data export failed:', error?.message || error);
+        return jsonResponse({ error: 'No se pudo preparar la exportación de datos.' }, 500, { 'Cache-Control': 'no-store' });
+    }
+}
+
 async function handleBackup(env, request) {
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
@@ -11284,6 +11352,7 @@ export async function workerFetch(request, env) {
         if (path === '/admin/users') return await handleAdminUsers(env, url, request);
         if (path === '/admin/user-action') return await handleAdminUserAction(env, request);
         if (path === '/admin/backup') return await handleBackup(env, request);
+        if (path === '/account/export') return await handleAccountExport(env, request);
         if (path === '/admin/upload-keys') return await handleUploadKeys(env, request);
 
         if (path === '/google-site-verification=pGiqWX9w9sbdMXnEixc6AcgLhGlC15_RoZbvhzsm1j0') return new Response('google-site-verification=pGiqWX9w9sbdMXnEixc6AcgLhGlC15_RoZbvhzsm1j0', { headers: { 'Content-Type': 'text/html' } });
@@ -11613,6 +11682,22 @@ export async function applySecurityHeaders(response, festivityConfig = null) {
     // IMPORTANTE CSP3: si hay nonce o hash, 'unsafe-inline' se IGNORA.
     // Por eso NO usamos nonce aquí: el app tiene scripts inline legítimos
     // y scripts externos en 'self' (/air-flow/app.js).
+    headers.set('Content-Security-Policy-Report-Only', [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com",
+        "style-src 'self' https://fonts.googleapis.com",
+        "img-src 'self' data: blob: https:",
+        "font-src 'self' data: https://fonts.gstatic.com",
+        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com",
+        "frame-src 'self' https://www.paypal.com",
+        "media-src 'self' blob:",
+        "worker-src 'self' blob:",
+        "upgrade-insecure-requests"
+    ].join('; '));
     headers.set('Content-Security-Policy', [
         "default-src 'self'",
         "base-uri 'self'",
