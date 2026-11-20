@@ -103,10 +103,10 @@ jobs:
           async function ensurePlugin(file, declaration) {
             let source = await readFile(file, 'utf8');
             if (source.includes('com.google.gms.google-services')) return;
-            const match = source.match(/plugins\\s*\\{/);
+            const match = source.match(/plugins\s*\{/);
             if (!match) throw new Error('Missing Gradle plugins block in ' + file);
             const insertAt = match.index + match[0].length;
-            source = source.slice(0, insertAt) + '\\n    ' + declaration + source.slice(insertAt);
+            source = source.slice(0, insertAt) + '\n    ' + declaration + source.slice(insertAt);
             await writeFile(file, source);
           }
 
