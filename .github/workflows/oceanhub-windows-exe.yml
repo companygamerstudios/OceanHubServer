@@ -1,0 +1,106 @@
+name: OceanHub Windows EXE
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/oceanhub-app/**"
+      - ".github/workflows/oceanhub-windows-exe.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "apps/oceanhub-app/**"
+      - ".github/workflows/oceanhub-windows-exe.yml"
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Adjuntar el instalador EXE al Release estable oficial"
+        required: true
+        type: boolean
+        default: true
+      release_tag:
+        description: "Etiqueta del Release existente"
+        required: true
+        type: string
+        default: "v3.0.0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: oceanhub-windows-exe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-exe:
+    name: Windows x64 NSIS installer
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/oceanhub-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Set up stable Rust for Windows
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          $nsis = Get-ChildItem "C:\Program Files (x86)\NSIS\makensis.exe" -ErrorAction SilentlyContinue
+          if (-not $nsis) { throw "NSIS makensis.exe was not installed." }
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install app dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build official Windows x64 EXE installer
+        run: npm run tauri:windows:build
+
+      - name: Verify installer output
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "src-tauri\target\release\bundle\nsis" -Filter "*.exe" -File | Select-Object -First 1
+          if (-not $installer) { throw "Tauri did not produce a Windows NSIS .exe installer." }
+          if ($installer.Length -lt 1MB) { throw "The Windows installer is unexpectedly small." }
+          New-Item -ItemType Directory -Force -Path "release" | Out-Null
+          Copy-Item $installer.FullName "release\OceanHub-Setup-3.0.0-x64.exe"
+          Get-FileHash "release\OceanHub-Setup-3.0.0-x64.exe" -Algorithm SHA256 | Format-List
+          Get-Item "release\OceanHub-Setup-3.0.0-x64.exe" | Select-Object Name,Length
+
+      - name: Upload Windows EXE as a direct artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: apps/oceanhub-app/release/OceanHub-Setup-3.0.0-x64.exe
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish Windows EXE to the official stable release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: OceanHub v3.0.0
+          body: |
+            OceanHub 3.0.0 — instaladores oficiales.
+
+            Android: APK ARM64.
+            Windows: instalador EXE x64 (NSIS).
+            Sitio oficial: https://oceanhud.yoelenmanuelzorrilla.workers.dev/download
+          prerelease: false
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: apps/oceanhub-app/release/OceanHub-Setup-3.0.0-x64.exe
