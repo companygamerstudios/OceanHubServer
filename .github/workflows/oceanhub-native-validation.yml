@@ -12,9 +12,20 @@ on:
       - "apps/oceanhub-app/**"
       - ".github/workflows/oceanhub-native-validation.yml"
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publicar la APK firmada como versión preliminar pública"
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: "Etiqueta de la publicación"
+        required: true
+        type: string
+        default: "v3.0.0-preview.1"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: oceanhub-android-apk-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
@@ -261,6 +272,22 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 30
+      - name: Publish signed Android APK prerelease
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: OceanHub Android ${{ inputs.release_tag }}
+          body: |
+            OceanHub para Android (ARM64).
+            
+            Esta publicación es una versión preliminar pública. Instala el APK en Android 7.0 o superior.
+            Paquete: com.companygamerstudios.oceanhub
+            
+            SHA-256 del archivo: se valida en el workflow de compilación.
+          prerelease: true
+          make_latest: false
+          files: apps/oceanhub-app/release/OceanHub-Android-arm64-release.apk
       - name: Build installable Android arm64 APK
         run: npm run tauri:android:build -- --debug --target aarch64 --ci
       - name: Verify package identity, launcher icon and launch activity
