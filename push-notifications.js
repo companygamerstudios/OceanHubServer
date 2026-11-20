@@ -76,10 +76,12 @@ export function sanitizePushNotification(notification) {
 export function validatePushRegistration(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return { ok: false, reason: "invalid_body" };
   const platform = String(input.platform || "").toLowerCase();
-  const token = String(input.token || "").trim();
+  const rawToken = String(input.token || "");
+  // Validate control characters before trimming; otherwise a trailing newline can be hidden.
+  if (/[\u0000-\u001f\u007f]/.test(rawToken)) return { ok: false, reason: "invalid_token" };
+  const token = rawToken.trim();
   if (!["android", "web", "windows"].includes(platform)) return { ok: false, reason: "invalid_platform" };
   if (token.length < 40 || token.length > MAX_REGISTRATION_TOKEN_LENGTH) return { ok: false, reason: "invalid_token" };
-  if (/[\u0000-\u001f\u007f]/.test(token)) return { ok: false, reason: "invalid_token" };
   return { ok: true, platform, token };
 }
 
