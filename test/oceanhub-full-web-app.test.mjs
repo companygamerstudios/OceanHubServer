@@ -40,3 +40,18 @@ test("the app fallback declares mobile viewport and safe-area support", async ()
   assert.match(html, /name="viewport"/);
   assert.match(html, /viewport-fit=cover/);
 });
+
+
+test("the existing OceanHub website keeps responsive layouts in the native WebView", async () => {
+  const worker = await read("OceanHub_SECURITY_PATCHED_FINAL_v18.js");
+
+  // The full homepage has dedicated tablet and phone breakpoints.
+  assert.match(worker, /@media\(max-width:820px\)/);
+  assert.match(worker, /@media\(max-width:480px\)/);
+  assert.match(worker, /viewport-fit=cover/);
+
+  // The sign-in and social pages also declare mobile viewport metadata.
+  assert.match(worker, /<meta name="viewport"/);
+  assert.match(worker, /@media \(max-width:520px\)/);
+  assert.match(worker, /function socialShell\(/);
+});
