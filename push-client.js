@@ -40,6 +40,20 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   function setLocalFlag(name, value) {
     try { if (value) localStorage.setItem(name, "1"); else localStorage.removeItem(name); } catch (_) {}
   }
+  function getWindowsDeviceToken() {
+    try {
+      var value = localStorage.getItem("oh_push_windows_device_id");
+      if (!value) {
+        value = Array.from(crypto.getRandomValues(new Uint8Array(32)), function (byte) {
+          return byte.toString(16).padStart(2, "0");
+        }).join("");
+        localStorage.setItem("oh_push_windows_device_id", value);
+      }
+      return value;
+    } catch (_) {
+      throw new Error("No se pudo crear el identificador seguro de este dispositivo.");
+    }
+  }
 
   async function setupAndroid() {
     if (!api) throw new Error("El puente nativo de OceanHub no está disponible.");
@@ -89,13 +103,18 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
 
   async function setupWindows() {
     if (!api) throw new Error("El puente nativo de OceanHub no está disponible.");
-    await post("/api/push/preferences", { windows: true });
+    var notificationApi = window.__TAURI__ && window.__TAURI__.notification;
+    if (!notificationApi) throw new Error("El sistema de notificaciones de Windows no está disponible.");
+    var permissionGranted = await notificationApi.isPermissionGranted();
+    if (!permissionGranted) permissionGranted = (await notificationApi.requestPermission()) === "granted";
+    if (!permissionGranted) throw new Error("Windows no concedió permiso para mostrar notificaciones.");
+    await registerToken("windows", getWindowsDeviceToken());
     setLocalFlag("oh_push_windows_enabled", true);
     if (byId("pushAutostart") && byId("pushAutostart").checked) {
       await api("plugin:autostart|enable");
     }
     connectWindows();
-    status("Notificaciones activadas. OceanHub permanecerá en segundo plano en la bandeja de Windows.");
+    status("Notificaciones activadas. Al cerrar la ventana, OceanHub seguirá en la bandeja de Windows.");
   }
 
   async function enablePush() {
@@ -117,7 +136,7 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
         await api("plugin:fcm|delete_token");
         setLocalFlag("oh_push_android_enabled", false);
       } else if (windowsApp) {
-        await post("/api/push/preferences", { windows: false });
+        await post("/api/push/unregister", { platform: "windows", token: getWindowsDeviceToken() });
         setLocalFlag("oh_push_windows_enabled", false);
         closeWindowsSocket();
         try { await api("plugin:autostart|disable"); } catch (_) {}
@@ -151,8 +170,12 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   function showWindowsNotification(data) {
     var title = String(data.title || "OceanHub").slice(0, 120);
     var body = String(data.body || "").slice(0, 180);
-    if (api) {
-      api("show_push_notification", { title: title, body: body }).catch(function () {});
+    var notificationApi = window.__TAURI__ && window.__TAURI__.notification;
+    if (notificationApi && typeof notificationApi.sendNotification === "function") {
+      try {
+        var result = notificationApi.sendNotification({ title: title, body: body });
+        if (result && typeof result.catch === "function") result.catch(function () {});
+      } catch (_) {}
     }
   }
 
@@ -189,6 +212,34 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
     var disable = byId("pushDisable");
     if (enable) enable.addEventListener("click", enablePush);
     if (disable) disable.addEventListener("click", disablePush);
+    var preferenceIds = {
+      messages: "pushPrefMessages",
+      social: "pushPrefSocial",
+      system: "pushPrefSystem"
+    };
+    if (byId(preferenceIds.messages) || byId(preferenceIds.social) || byId(preferenceIds.system)) {
+      requestJson("/api/push/preferences").then(function (result) {
+        Object.keys(preferenceIds).forEach(function (key) {
+          var control = byId(preferenceIds[key]);
+          if (control) control.checked = result.preferences && result.preferences[key] !== false;
+        });
+      }).catch(function (error) { status(error.message || "No se pudieron cargar las preferencias.", true); });
+      Object.keys(preferenceIds).forEach(function (key) {
+        var control = byId(preferenceIds[key]);
+        if (!control) return;
+        control.addEventListener("change", function () {
+          var preferences = {};
+          Object.keys(preferenceIds).forEach(function (name) {
+            var input = byId(preferenceIds[name]);
+            if (input) preferences[name] = input.checked;
+          });
+          post("/api/push/preferences", preferences).catch(function (error) {
+            control.checked = !control.checked;
+            status(error.message || "No se pudo guardar la preferencia.", true);
+          });
+        });
+      });
+    }
     var autostartWrap = byId("pushAutostartWrap");
     if (autostartWrap && windowsApp) autostartWrap.hidden = false;
     var autostart = byId("pushAutostart");
@@ -214,7 +265,9 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
     if (!androidApp && !windowsApp && localFlag("oh_push_web_enabled") && Notification.permission === "granted") {
       setupWeb().catch(function () {});
     }
-    if (windowsApp && localFlag("oh_push_windows_enabled")) connectWindows();
+    if (windowsApp && localFlag("oh_push_windows_enabled")) {
+      registerToken("windows", getWindowsDeviceToken()).then(connectWindows).catch(function () { connectWindows(); });
+    }
     window.addEventListener("beforeunload", function () {
       if (socket) {
         try { socket.close(1000, "page navigation"); } catch (_) {}
