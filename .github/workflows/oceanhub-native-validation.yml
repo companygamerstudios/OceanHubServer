@@ -62,35 +62,41 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Initialize Tauri Android project
         run: npm run tauri:android:init -- --ci
-      - name: Configure public repositories for generated Android buildSrc
+      - name: Configure Maven repositories for Android Gradle and buildSrc
         shell: bash
         run: |
           node --input-type=module <<'NODE'
           import { readFile, writeFile, access } from 'node:fs/promises';
 
           const candidates = [
+            'src-tauri/gen/android/settings.gradle.kts',
+            'src-tauri/gen/android/settings.gradle',
+            'src-tauri/gen/android/buildSrc/settings.gradle.kts',
+            'src-tauri/gen/android/buildSrc/settings.gradle',
             'src-tauri/gen/android/buildSrc/build.gradle.kts',
             'src-tauri/gen/android/buildSrc/build.gradle'
           ];
-          let patched = false;
+          let patched = 0;
           for (const file of candidates) {
             try { await access(file); } catch { continue; }
             let source = await readFile(file, 'utf8');
             if (/repositories\s*\{/.test(source)) {
-              // Add the repositories to every handler. A repository in
-              // pluginManagement does not satisfy buildscript classpath
-              // dependency resolution in buildSrc.
+              // Include Maven Central in pluginManagement and buildscript
+              // repositories; these are separate from app/project repos.
               source = source.replace(/repositories\s*\{/g, (match) =>
                 match + '\n        google()\n        mavenCentral()\n        gradlePluginPortal()'
               );
+            } else if (file.includes('/settings.gradle')) {
+              source += '\npluginManagement {\n    repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }\n}\n';
             } else {
               source += '\nbuildscript {\n    repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }\n}\n';
             }
             await writeFile(file, source);
-            console.log('Configured google(), mavenCentral() and gradlePluginPortal() in ' + file);
-            patched = true;
+            console.log('Configured Maven/plugin repositories in ' + file);
+            patched += 1;
           }
-          if (!patched) throw new Error('Generated Android buildSrc Gradle file was not found.');
+          if (patched === 0) throw new Error('No generated Android Gradle settings/buildSrc files were found.');
+          console.log('Patched ' + patched + ' generated Gradle files.');
           NODE
       - name: Build installable Android arm64 APK
         run: npm run tauri:android:build -- --debug --target aarch64 --ci
