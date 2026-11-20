@@ -15,11 +15,12 @@ The Windows design deliberately does **not** claim push delivery after the user 
 ## Security properties
 
 - /api/push/* requires the existing OceanHub session; push endpoints do not create a second authentication system.
-- Registration, unregistration and preference mutations are rate-limited in the Worker. The API rejects cross-origin requests when an Origin header is present.
+- Registration, unregistration and preference mutations are authenticated and rate-limited in the Worker. The API rejects cross-origin requests when an Origin header is present; the Windows WebSocket requires an exact same-origin `Origin` header.
 - Device tokens are encrypted at rest with AES-GCM using a dedicated PUSH_TOKEN_ENCRYPTION_SECRET; the token itself is never used as the KV key.
 - The account email is normalized and SHA-256 hashed for device/preference storage keys and push Durable Object names.
 - Device-list mutations are serialized using the existing KV_LOCKER lock helper. At most 12 devices are stored per account.
-- Push payload links are restricted to relative same-origin paths. The notification title/body are length-limited.
+- Push payload links are restricted to relative same-origin paths. The notification title/body are length-limited. Private-message push alerts deliberately contain a generic preview rather than message text, and private-message delivery has a short provider TTL.
+- Explicit logout attempts to unregister only the current device before leaving the session; a failed network cleanup never blocks logout. The next signed-in account on that device registers its own token on the next app load.
 - FCM delivery is best-effort after the in-app notification has been persisted. Provider failures do not undo the message or notification record.
 - Existing HMAC, key verification, sessions, payment handlers and existing secret values are not changed by this feature.
 
@@ -97,11 +98,11 @@ Windows additionally offers an optional “start OceanHub when Windows starts”
 - Android 13+ requires notification permission. Android can stop delivery after a user force-stops the app in system settings; the user must reopen the app. Battery-management policies may also delay delivery.
 - Android FCM background notification messages are displayed by the OS. The current Tauri FCM plugin's Android service is token-focused and does not surface foreground message callbacks to the WebView; while OceanHub is open and in the foreground, the in-app inbox remains available, but a native toast for that foreground case needs a further native callback/handler.
 - Browser Web Push requires HTTPS, a supported browser, an installed/available service worker and explicit notification permission. Browser/OS settings can suppress notifications.
-- Windows uses close-to-tray, not a Windows service. The notification process must remain running. “Salir de OceanHub” exits the process and ends live push reception.
+- Windows uses close-to-tray, not a Windows service. A WebSocket heartbeat detects a stale connection and retries it. The notification process must remain running. “Salir de OceanHub” exits the process and ends live push reception.
 
 ## Verification plan
 
-1. Unit tests validate accepted platforms, rejected registrations, AES-GCM encryption/decryption, device registration/unregistration, category preferences, Origin rejection and service-worker output.
+1. Unit tests validate accepted platforms, rejected registrations, AES-GCM encryption/decryption, device registration/unregistration, category preferences, API and WebSocket Origin rejection, Firebase project isolation, private-message preview redaction, generated service-worker output and injected-client syntax/lifecycle safeguards.
 2. npm run check:syntax checks the Worker and both push modules.
 3. npm test runs the full existing and push-specific test suite.
 4. The Worker validation workflow performs a Wrangler dry run only; it does not deploy.
