@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
 
@@ -37,6 +39,23 @@ test('production deployment is restricted to main even when manually dispatched'
   assert.ok(deployWorkflow.includes('El despliegue de producción solo se permite desde main.'));
   assert.ok(deployWorkflow.includes('actions/checkout@v7'));
   assert.ok(deployWorkflow.includes('actions/setup-node@v7'));
+});
+
+test('Cloudflare Workers Builds cannot deploy production from a non-main branch', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const preflight = fileURLToPath(new URL('../preflight_deploy_v18.mjs', import.meta.url));
+  const result = spawnSync(process.execPath, [preflight, 'production'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      WORKERS_CI: '1',
+      WORKERS_CI_BRANCH: 'feat/test-preview'
+    }
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Despliegue de producción bloqueado/);
+  assert.match(result.stderr, /feat\/test-preview/);
 });
 
 test('PayPal mode accepts only explicit sandbox/live values', () => {
