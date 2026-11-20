@@ -18,3 +18,8 @@ tauri = { version = "2", features = [] }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# Keep installable CI APKs small while retaining debuggable Rust behavior.
+[profile.dev]
+debug = 0
+strip = "debuginfo"
