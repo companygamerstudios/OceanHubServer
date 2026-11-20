@@ -37,6 +37,15 @@ test('el centro de descargas y sus endpoints son públicos', async () => {
   assert.equal((await version.json()).version, APP_VERSION);
 });
 
+test('la descarga Android redirige al APK estable oficial v3.0.0', async () => {
+  const response = await handleDownloadCenterRoute(new Request('https://example.test/download/android'));
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('Location'), 'https://github.com/companygamerstudios/OceanHubServer/releases/download/v3.0.0/OceanHub-Android-arm64-release.apk');
+  assert.equal(APP_VERSION, '3.0.0');
+  assert.equal(MINIMUM_SUPPORTED_VERSION, '3.0.0');
+  assert.equal(getAppVersionPayload().channel, 'stable');
+});
+
 test('el centro de descargas rechaza métodos de escritura', async () => {
   const response = await handleDownloadCenterRoute(new Request('https://example.test/download', { method: 'POST' }));
   assert.equal(response.status, 405);
