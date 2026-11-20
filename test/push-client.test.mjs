@@ -13,6 +13,10 @@ test("push client unregisters only this device before following the logout link"
   assert.match(PUSH_CLIENT_JS, /destination\.pathname !== "\/logout"/);
   assert.match(PUSH_CLIENT_JS, /\/api\/push\/unregister/);
   assert.match(PUSH_CLIENT_JS, /keepalive: true/);
+  assert.match(PUSH_CLIENT_JS, /plugin:fcm\\|delete_token/);
+  assert.match(PUSH_CLIENT_JS, /messagingModule\.deleteToken\(messaging\)/);
+  assert.match(PUSH_CLIENT_JS, /setLocalFlag\("oh_push_android_enabled", false\)/);
+  assert.match(PUSH_CLIENT_JS, /setLocalFlag\("oh_push_windows_enabled", false\)/);
   assert.match(PUSH_CLIENT_JS, /location\.assign\(destination\.href\)/);
 });
 
