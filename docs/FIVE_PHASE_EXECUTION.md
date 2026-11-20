@@ -14,7 +14,7 @@ Esta entrega consolida cuatro áreas de trabajo y conserva el Worker actual. La 
 | 1. Seguridad y estabilidad | Nonces atómicos ligados al hash de IP en Durable Object; limitación de emisión; validación de tamaño en /verify; protección Origin/Fetch Metadata para mutaciones con cookie de sesión; checkout/cancelación/canje mediante POST; CSV correctamente citado y neutralización de fórmulas; CSP Report-Only más estricta; registro idempotente de eventos PayPal. Se conserva GET /account/export sin depender de R2 | Migrar todas las páginas a CSP estricta sin unsafe-inline; auditoría OAuth/CSRF completa; revisión de logs; pentest externo; validación en producción |
 | 2. Pagos y vendedores | Ledger de event.id PayPal para duplicados; eventos de reembolso/reversión/disputa se marcan para conciliación manual; pedidos existentes conservan lock por orden | Marketplace todavía no cobra ni liquida a vendedores. Falta modelo de órdenes, payout/escrow, reembolsos automáticos, disputa y pruebas Sandbox integrales |
 | 3. Experiencia social | Corrige fallback KV de presencia y evita revelar estado invisible; conserva heartbeat, rutas y respuesta de Friends. Ya hay base de soporte/notificaciones y Security Center en Ocean Suite | Solicitudes de mensajes, preferencias finas y un inbox unificado requieren endpoints, límites y pruebas de privacidad adicionales |
-| 4. OceanHub 3.0 | PWA y dos clientes Tauri 2 que cargan la **web completa** del Worker actual desde la raíz oficial. Windows usa WebView2 y Android usa WebView; ambos conservan las rutas reales, login web, sesión, comunidad, Air Flow, Market, Creator y controles del servidor. Se eliminó la maqueta local de módulos de demostración. CI compila instalador Windows NSIS sin firma y APK Android arm64 debug | Auditoría responsive real por ruta y dispositivo; prueba de OAuth de Google/Discord en WebView y callback seguro con navegador externo si un proveedor bloquea el WebView; pruebas de uploads/cámara/micrófono/pagos; firma comercial y updater firmado. MSI queda fuera de este build de prueba por la restricción de prerelease de Tauri |
+| 4. OceanHub 3.0 | Una aplicación Tauri 2 **solo para Android** que carga la **web completa** del Worker oficial dentro de WebView. Conserva las rutas reales, login web, sesión, comunidad, Air Flow, Market, Creator y controles del servidor; no usa módulos simulados ni un backend paralelo. CI genera un APK arm64 de prueba y lo entrega como archivo `.apk` individual, sin ZIP. No se genera cliente ni instalador Windows en esta entrega | Validación responsive por ruta/teléfono; prueba de OAuth Google/Discord en WebView y retorno seguro al navegador del sistema si un proveedor bloquea el WebView; pruebas de archivos/cámara/micrófono/pagos; firma Android release estable, prueba de actualización y publicación permanente |
 
 ## Alcance de datos y almacenamiento
 
@@ -39,24 +39,26 @@ Esta entrega consolida cuatro áreas de trabajo y conserva el Worker actual. La 
 - Obtener estado verde de los quality gates de GitHub para esta rama/PR.
 - Ejecutar prueba de integración del cliente Lua contra un Worker de Preview: emisión de Nonce, firma HMAC correcta, nonce repetido rechazado, firma inválida rechazada y compatibilidad exacta del JSON.
 - Probar checkout con PayPal Sandbox y firma de webhook; confirmar que un evento duplicado no vuelve a otorgar beneficios.
-- Validar PWA y compilaciones nativas en Windows/Android.
+- Validar PWA y la APK Android en teléfonos reales.
 - Revisar PRs apilados #19, #20 y #21 en orden, sin mezclar configuraciones de producción.
 - Los backups R2 no son una condición para completar ni probar estas cuatro fases.
 
 **No activar el despliegue a producción desde esta rama.** La integración requiere revisión humana y prueba real de compatibilidad, especialmente por los cambios a los métodos de checkout/canje. El estado verde de pruebas automatizadas no sustituye la prueba del cliente Lua ni la validación de servicios externos.
 
-## Cliente nativo Windows y Android — web completa
+## Aplicación nativa Android — web completa
 
-Los dos paquetes Tauri 2 cargan la web oficial completa desde `https://oceanhud.yoelenmanuelzorrilla.workers.dev/`; no muestran módulos locales simulados ni mantienen un backend paralelo. El Worker sigue decidiendo la autenticación, sesión, roles, rutas y datos. Sin sesión, `/` conserva el redirect web hacia `/welcome`. El WebView remoto no recibe permisos Tauri/IPC ni acceso general al dispositivo.
+La entrega nativa se limita a **una APK Android ARM64**. No se compila ni distribuye una aplicación Windows en este alcance. La APK carga la web oficial completa desde `https://oceanhud.yoelenmanuelzorrilla.workers.dev/`; no muestra módulos locales simulados ni mantiene un backend paralelo. El Worker sigue decidiendo autenticación, sesión, roles, rutas y datos.
 
-- Windows: ventana de escritorio mediante WebView2.
-- Android: WebView móvil que debe usar el layout responsive de la propia web.
-- La sesión queda aislada dentro del perfil WebView de cada app; no se comparte automáticamente con el navegador externo.
-- La aplicación necesita conexión a Internet para usar el sitio hospedado en el Worker.
-- La compilación de la APK/EXE no demuestra por sí sola que cada ruta esté adaptada a móvil. Revisar Home, login/2FA, perfiles, Friends, notificaciones, Ocean Suite, Air Flow, Market, Creator y paneles autorizados en teléfonos reales y en escritorio.
-- Google/Discord OAuth y las APIs de dispositivos requieren pruebas reales: si el proveedor bloquea el acceso desde WebView embebido, integrar un flujo de navegador externo con callback/deep link seguro antes de anunciar soporte completo.
+- Nombre del icono/launcher: **OceanHub**; identificador Android: `com.companygamerstudios.oceanhub`.
+- Incluye el logo de OceanHub en los recursos del launcher y declara Android 7.0 (API 24) como mínimo.
+- Compilación CI actual: APK arm64 debug para instalación y pruebas; el workflow comprueba package ID, label, icono y actividad de inicio.
+- El artefacto de Actions se entrega como archivo `.apk` individual (sin contenedor ZIP) y se conserva 30 días.
+- La app necesita Internet; la sesión queda aislada dentro del WebView de OceanHub.
+- El WebView remoto no recibe permisos Tauri/IPC generales ni acceso arbitrario al dispositivo.
+- Hay que revisar welcome/login, perfiles, Friends, notificaciones, Ocean Suite, Air Flow, Market y Creator en dispositivos y anchuras pequeñas.
+- Google/Discord OAuth, cargas de archivos, cámara, micrófono, enlaces externos y pagos requieren pruebas reales en WebView. Si un proveedor bloquea el acceso embebido, completar retorno seguro al navegador del sistema.
+- Una APK debug no es una release pública. La firma estable de producción necesita un keystore protegido en Secrets y una prueba de actualización antes de Play Store o distribución permanente.
 
-El archivo `apps/oceanhub-app/README.md` describe arquitectura y matriz pendiente de validación. La pantalla local de fallback no es una copia offline de la web.
 
 ## Prueba del cliente OceanHub V8
 
@@ -66,8 +68,8 @@ Para ejecutar una prueba manual en el Worker de Preview con una clave de staging
 
 ## Compilación nativa
 
-La configuración Tauri incluye iconos PNG/ICO; el workflow Android no duplica `--apk`. La validación nativa produce artefactos de prueba no firmados; no son releases comerciales ni paquetes firmados.
+La configuración Tauri incluye el icono PNG del launcher, identificador Android estable y versión mínima. El workflow Android compila una APK debug arm64, verifica su identidad con `aapt` y sube el archivo `.apk` sin ZIP; no se compila Windows.
 
 ### Estado de compilación nativa
 
-El instalador Windows de esta fase es NSIS `.exe` sin firma; MSI queda fuera hasta cambiar la versión prerelease a un formato numérico compatible. Android se compila como APK arm64 de depuración. Ninguno de estos archivos es una release oficial ni un paquete firmado. Los archivos deben considerarse disponibles solo después de que el job `OceanHub Native build validation` termine en verde y los artefactos aparezcan en su Summary.
+Esta fase produce únicamente `OceanHub-Android-arm64-preview.apk`, una APK arm64 debug para instalar y probar. No es una release pública ni una APK firmada con clave release. Descarga el archivo individual desde el artefacto **OceanHub Android APK** en el Summary del workflow; el enlace de Actions caduca a los 30 días.
