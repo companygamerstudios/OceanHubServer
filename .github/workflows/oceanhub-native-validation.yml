@@ -159,6 +159,108 @@ jobs:
           }
           console.log('Patched ' + patched + ' generated Gradle files.');
           NODE
+      - name: Configure stable Android release signing (main only)
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          mkdir -p "$RUNNER_TEMP/oceanhub-signing"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/oceanhub-signing/release.jks"
+          test -s "$RUNNER_TEMP/oceanhub-signing/release.jks"
+          cd src-tauri/gen/android
+          {
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/oceanhub-signing/release.jks"
+          } > keystore.properties
+          chmod 600 keystore.properties "$RUNNER_TEMP/oceanhub-signing/release.jks"
+      - name: Wire release keystore into generated Gradle app
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gradle = Path("src-tauri/gen/android/app/build.gradle.kts")
+          if not gradle.is_file():
+              raise SystemExit(f"Missing generated app Gradle file: {gradle}")
+          source = gradle.read_text()
+          if "oceanHubRelease" not in source:
+              imports = ""
+              if "import java.util.Properties" not in source:
+                  imports += "import java.util.Properties\n"
+              if "import java.io.FileInputStream" not in source:
+                  imports += "import java.io.FileInputStream\n"
+              source = imports + source
+              signing = '''
+              signingConfigs {
+                  create("oceanHubRelease") {
+                      val signingProperties = Properties()
+                      val signingFile = rootProject.file("keystore.properties")
+                      require(signingFile.isFile) { "Missing Android keystore.properties" }
+                      signingProperties.load(FileInputStream(signingFile))
+                      storeFile = file(signingProperties.getProperty("storeFile"))
+                      storePassword = signingProperties.getProperty("storePassword")
+                      keyAlias = signingProperties.getProperty("keyAlias")
+                      keyPassword = signingProperties.getProperty("keyPassword")
+                  }
+              }
+
+              '''
+              match = re.search(r"(?m)^\s*buildTypes\s*\{", source)
+              if not match:
+                  raise SystemExit("Could not find android buildTypes block in generated app/build.gradle.kts")
+              source = source[:match.start()] + signing + source[match.start():]
+              release = re.search(r'(?m)^(\s*)getByName\(["\']release["\']\)\s*\{', source)
+              if not release:
+                  release = re.search(r'(?m)^(\s*)release\s*\{', source)
+              if not release:
+                  raise SystemExit("Could not find release build type in generated app/build.gradle.kts")
+              indent = release.group(1) + "    "
+              insert_at = release.end()
+              source = source[:insert_at] + "\n" + indent + 'signingConfig = signingConfigs.getByName("oceanHubRelease")' + source[insert_at:]
+              gradle.write_text(source)
+          print(f"Configured stable signing in {gradle}")
+          PY
+      - name: Build signed Android arm64 release APK
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: npm run tauri:android:build -- --release --target aarch64 --ci
+      - name: Verify release APK signature and package identity
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
+          test -s "$APK"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/oceanhub-release-signature.txt
+          grep -F "Signer #1 certificate" /tmp/oceanhub-release-signature.txt
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          "$AAPT" dump badging "$APK" | tee /tmp/oceanhub-release-badging.txt
+          grep -F "package: name='com.companygamerstudios.oceanhub'" /tmp/oceanhub-release-badging.txt
+          grep -F "application-label:'OceanHub'" /tmp/oceanhub-release-badging.txt
+          mkdir -p release
+          cp "$APK" release/OceanHub-Android-arm64-release.apk
+          sha256sum release/OceanHub-Android-arm64-release.apk
+      - name: Upload signed release APK as a direct file
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v7
+        with:
+          path: apps/oceanhub-app/release/OceanHub-Android-arm64-release.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
       - name: Build installable Android arm64 APK
         run: npm run tauri:android:build -- --debug --target aarch64 --ci
       - name: Verify package identity, launcher icon and launch activity
