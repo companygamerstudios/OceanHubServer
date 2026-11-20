@@ -14,7 +14,7 @@ test('native build CI creates and validates only a directly downloadable Android
   assert.ok(nativeWorkflow.includes('mavenCentral()'));
   assert.ok(nativeWorkflow.includes('google()'));
   assert.ok(nativeWorkflow.includes('source.replace(/repositories'));
-  assert.ok(nativeWorkflow.includes('pluginManagement/project repositories'));
+  assert.ok(nativeWorkflow.includes('does not satisfy buildscript classpath'));
   assert.ok(nativeWorkflow.includes('Build installable Android arm64 APK'));
   assert.ok(nativeWorkflow.includes("com.companygamerstudios.oceanhub"));
   assert.ok(nativeWorkflow.includes("application-label:'OceanHub'"));
