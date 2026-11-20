@@ -49,6 +49,13 @@ El workflow **OceanHub Android APK** compila el APK, valida con `aapt` el identi
 
 Los artefactos de Actions caducan según el periodo de retención del workflow (actualmente 30 días). El enlace del artefacto de Actions no es una publicación permanente.
 
+
+## APK firmada de Android (release)
+
+El workflow **OceanHub Android APK** conserva el APK debug de prueba y, cuando se ejecuta en `main` por push o manualmente, también genera `OceanHub-Android-arm64-release.apk` con la clave privada protegida en GitHub Actions Secrets. Los secretos utilizados son `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD` y `ANDROID_KEY_ALIAS`. El archivo del keystore y `keystore.properties` se crean solo en el runner y no se guardan en Git.
+
+El paso de release verifica la firma con `apksigner` y comprueba el identificador y nombre del paquete antes de publicar el artefacto. No distribuyas el APK como actualización final hasta probar instalación limpia y actualización sobre una instalación anterior firmada con la misma clave, además de validar OAuth, sesiones, permisos, enlaces y pagos en dispositivos reales.
+
 ## Estado de seguridad y publicación
 
 Los builds actuales son **debug APK de prueba**, firmados con la clave de depuración del entorno de compilación. Sirven para instalar y probar en dispositivos, pero no son una release comercial ni deben subirse a Google Play. La firma debug generada por CI no debe tratarse como una clave estable para actualizaciones: una versión siguiente puede requerir desinstalar la anterior antes de instalar el nuevo APK, lo que borra sus datos locales.
