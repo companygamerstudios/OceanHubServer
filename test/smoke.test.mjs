@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import worker, { getPayPalMode } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
+import worker, { getPayPalMode, safeCsvCell, KVLocker } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
 
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
@@ -277,3 +277,92 @@ test('Worker Previews bind their own Durable Object namespace without reusing pr
     'A Preview must never reuse the production STATS namespace.'
   );
 });
+
+test('CSV export quotes cells and neutralizes spreadsheet formulas', () => {
+  assert.equal(safeCsvCell('normal,comma'), '"normal,comma"');
+  assert.equal(safeCsvCell('say "hello"'), '"say ""hello"""');
+  assert.equal(safeCsvCell('=1+1'), '"\'=1+1"');
+  assert.equal(safeCsvCell('  +cmd'), '"\'  +cmd"');
+  assert.equal(safeCsvCell(null), '""');
+});
+
+function createNonceLocker() {
+  const values = new Map();
+  const storage = {
+    kv: {
+      get(key) { return values.get(key); },
+      put(key, value) { values.set(key, value); },
+      delete(key) { values.delete(key); }
+    },
+    transactionSync(callback) { return callback(); }
+  };
+  return new KVLocker({ storage });
+}
+
+test('Durable Object Nonce consumption is atomic and permits only one concurrent winner', async () => {
+  const locker = createNonceLocker();
+  const nonce = 'A'.repeat(32);
+  const ipHash = 'a'.repeat(64);
+  const issued = await locker.fetch(new Request('https://kv-lock/security/nonce/issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce, ipHash, ttl: 120 })
+  }));
+  assert.equal(issued.status, 201);
+
+  const attempts = await Promise.all(Array.from({ length: 12 }, () =>
+    locker.fetch(new Request('https://kv-lock/security/nonce/consume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nonce, ipHash })
+    }))
+  ));
+  const outcomes = await Promise.all(attempts.map(response => response.json()));
+  assert.equal(outcomes.filter(result => result.ok === true).length, 1);
+});
+
+test('Durable Object Nonce is bound to IP hash without letting a wrong IP consume it', async () => {
+  const locker = createNonceLocker();
+  const nonce = 'B'.repeat(32);
+  const ipHash = 'b'.repeat(64);
+  const issued = await locker.fetch(new Request('https://kv-lock/security/nonce/issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce, ipHash, ttl: 120 })
+  }));
+  assert.equal(issued.status, 201);
+
+  const denied = await locker.fetch(new Request('https://kv-lock/security/nonce/consume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce, ipHash: 'c'.repeat(64) })
+  }));
+  assert.deepEqual(await denied.json(), { ok: false });
+
+  const accepted = await locker.fetch(new Request('https://kv-lock/security/nonce/consume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce, ipHash })
+  }));
+  assert.deepEqual(await accepted.json(), { ok: true });
+});
+
+test('security and account-data routes keep existing client contracts while tightening mutations', () => {
+  assert.match(source, /path === '\/verify-web'/);
+  assert.match(source, /path === '\/get-nonce'/);
+  assert.match(source, /path === '\/account\/export'/);
+  assert.match(source, /path === '\/shop\/create-checkout'[\s\S]{0,250}request\.method !== 'POST'/);
+  assert.match(source, /path === '\/cancelar-renovacion'[\s\S]{0,180}request\.method !== 'POST'/);
+  assert.match(source, /if \(request\.method !== 'POST'\)[\s\S]{0,160}canjea el código mediante POST/);
+  assert.match(source, /paypal_event_/);
+  assert.match(source, /Content-Security-Policy-Report-Only/);
+});
+
+test('backup restore remains opt-in, encrypted, R2-backed and additive only', () => {
+  assert.match(source, /BACKUPS_R2_NOT_CONFIGURED/);
+  assert.match(source, /encryptBackupPayload\(env, JSON\.stringify\(snapshot\)\)/);
+  assert.match(source, /RESTORE_OCEANHUB_ADD_ONLY/);
+  assert.match(source, /mode: 'additive'/);
+  assert.match(source, /never deletes|nunca borra/i);
+});
+
