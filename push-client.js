@@ -58,7 +58,10 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
 
   async function setupAndroid() {
     if (!api) throw new Error("El puente nativo de OceanHub no está disponible.");
-    await api("plugin:fcm|request_permissions");
+    var permission = await api("plugin:fcm|request_permissions");
+    if (permission && permission.notification && permission.notification !== "granted") {
+      throw new Error("Android no concedió el permiso para mostrar notificaciones.");
+    }
     await api("plugin:fcm|register");
     await api("plugin:fcm|create_channel", {
       args: { id: "oceanhub_messages", name: "Mensajes y actividad de OceanHub", importance: 4 }
