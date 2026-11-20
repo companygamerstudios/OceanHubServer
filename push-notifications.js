@@ -62,7 +62,7 @@ export function validatePushRegistration(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return { ok: false, reason: "invalid_body" };
   const platform = String(input.platform || "").toLowerCase();
   const token = String(input.token || "").trim();
-  if (!["android", "web"].includes(platform)) return { ok: false, reason: "invalid_platform" };
+  if (!["android", "web", "windows"].includes(platform)) return { ok: false, reason: "invalid_platform" };
   if (token.length < 40 || token.length > MAX_REGISTRATION_TOKEN_LENGTH) return { ok: false, reason: "invalid_token" };
   if (/[\u0000-\u001f\u007f]/.test(token)) return { ok: false, reason: "invalid_token" };
   return { ok: true, platform, token };
@@ -126,7 +126,6 @@ async function readPreferences(env, email) {
     messages: current?.messages !== false,
     social: current?.social !== false,
     system: current?.system !== false,
-    windows: current?.windows === true
   };
 }
 
@@ -136,7 +135,6 @@ async function writePreferences(env, email, input) {
     messages: typeof input.messages === "boolean" ? input.messages : previous.messages,
     social: typeof input.social === "boolean" ? input.social : previous.social,
     system: typeof input.system === "boolean" ? input.system : previous.system,
-    windows: typeof input.windows === "boolean" ? input.windows : previous.windows
   };
   const key = PREFS_PREFIX + await sha256(normalizedEmail(email));
   await env.STATS.put(key, JSON.stringify(next));
@@ -356,12 +354,14 @@ export async function sendPushToUser(env, email, notification) {
     const category = categoryForType(notification?.type);
     if (preferences[category] === false) return;
     const jobs = [];
-    if (preferences.windows) {
+    const devices = await readDevices(env, email);
+    // A Windows client is a registered opt-in device. Only publish while at least one
+    // Windows device is registered; inactive sockets simply receive nothing.
+    if (devices.some(device => device?.platform === "windows")) {
       jobs.push(sendWindowsSocketEvent(env, email, notification).catch(error => {
         console.warn("Windows push relay unavailable:", error?.message || error);
       }));
     }
-    const devices = await readDevices(env, email);
     if (devices.length && env.FIREBASE_SERVICE_ACCOUNT_JSON && env.PUSH_TOKEN_ENCRYPTION_SECRET) {
       for (const device of devices) {
         if (device?.platform !== "android" && device?.platform !== "web") continue;
