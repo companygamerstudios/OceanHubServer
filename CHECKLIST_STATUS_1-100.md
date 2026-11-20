@@ -57,3 +57,8 @@ Estado de esta pasada: PR #4. Este documento distingue cambios subidos, hallazgo
 ## Límites
 
 Las pruebas de CI son smoke tests de código; no son un pentest, no certifican todos los flujos y no verifican valores secretos. Para desplegar, primero debe revisarse y aprobarse el PR, completar las operaciones manuales y ejecutar el preflight con Wrangler autenticado.
+
+
+## Estado añadido — cinco fases
+
+La rama `feat/oceanhub-five-phase-execution` implementa los cortes iniciales descritos en `docs/FIVE_PHASE_EXECUTION.md`. No marque los elementos como completamente cerrados hasta tener: CSP estricta sin inline, pentest, backup R2/restauración en staging, eliminación de cuenta con política legal, pagos/escrow del Marketplace, login nativo y artefactos firmados Windows/Android.
