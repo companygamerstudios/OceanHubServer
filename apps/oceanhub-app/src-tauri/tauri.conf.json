@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: asset: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://oceanhud.yoelenmanuelzorrilla.workers.dev"
+      "csp": "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: asset: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://oceanhud.yoelenmanuelzorrilla.workers.dev wss://oceanhud.yoelenmanuelzorrilla.workers.dev"
     },
     "withGlobalTauri": true
   },
