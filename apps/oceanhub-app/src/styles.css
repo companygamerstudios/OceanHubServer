@@ -208,3 +208,59 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
 .status-offline { color: #ffd59b; background: rgba(222,159,82,.13); border: 1px solid rgba(255,206,145,.22); }
 .release-status .muted { line-height: 1.55; }
 .text-action:disabled { opacity: .6; cursor: progress; }
+
+
+/* Local fallback only; the normal app window loads the complete Worker website. */
+.web-launch-fallback {
+  min-height: 100vh;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  width: min(680px, 100%);
+  margin: 0 auto;
+  padding: max(28px, env(safe-area-inset-top)) 24px max(28px, env(safe-area-inset-bottom));
+  text-align: center;
+}
+.web-launch-mark {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 22px;
+  background: linear-gradient(140deg, #8deaff, #337de7);
+  color: #06243a;
+  font-size: 36px;
+  font-weight: 950;
+  box-shadow: 0 12px 38px rgba(47,159,234,.25);
+}
+.web-launch-eyebrow {
+  margin: 10px 0 0;
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .2em;
+}
+.web-launch-fallback h1 {
+  margin: 0;
+  font-size: clamp(28px, 6vw, 46px);
+  letter-spacing: -.04em;
+}
+.web-launch-fallback > p:not(.web-launch-eyebrow) {
+  max-width: 540px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.web-launch-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: 14px;
+  background: linear-gradient(110deg, #8deaff, #4eb6f2);
+  color: #06314a;
+  font-weight: 850;
+  text-decoration: none;
+}
+.web-launch-note { font-size: 12px; }
