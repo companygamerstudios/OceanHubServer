@@ -5,6 +5,7 @@ const MAX_REGISTRATION_TOKEN_LENGTH = 4096;
 const FIREBASE_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const FIREBASE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const FIREBASE_SDK_VERSION = "13.4.0";
+const FIREBASE_PROJECT_ID = "oceanhub-91e40";
 
 let accessTokenCache = null;
 const cryptoKeyCache = new Map();
@@ -146,6 +147,7 @@ function getFirebaseWebConfig(env) {
     const config = JSON.parse(String(env?.FIREBASE_WEB_CONFIG_JSON || ""));
     const required = ["apiKey", "authDomain", "projectId", "messagingSenderId", "appId"];
     if (!config || typeof config !== "object" || required.some(key => typeof config[key] !== "string" || !config[key])) return null;
+    if (config.projectId !== FIREBASE_PROJECT_ID) return null;
     return Object.fromEntries(required.concat(["storageBucket"]).filter(key => typeof config[key] === "string").map(key => [key, config[key]]));
   } catch {
     return null;
@@ -249,8 +251,11 @@ async function getFirebaseAccessToken(env) {
   try { serviceAccount = JSON.parse(raw); } catch { throw new Error("Credencial Firebase JSON no válida"); }
   const projectId = String(serviceAccount.project_id || "");
   const clientEmail = String(serviceAccount.client_email || "");
-  if (!/^[a-z0-9-]{4,80}$/.test(projectId) || !/^[^@\s]+@[^@\s]+\.iam\.gserviceaccount\.com$/.test(clientEmail)) {
-    throw new Error("Identidad de cuenta de servicio Firebase no válida");
+  if (projectId !== FIREBASE_PROJECT_ID ||
+      clientEmail !== "firebase-adminsdk-fbsvc@" + FIREBASE_PROJECT_ID + ".iam.gserviceaccount.com" ||
+      typeof serviceAccount.private_key !== "string" ||
+      !serviceAccount.private_key.includes("-----BEGIN PRIVATE KEY-----")) {
+    throw new Error("La cuenta de servicio no pertenece al proyecto Firebase de OceanHub o su clave no es válida");
   }
   if (accessTokenCache && accessTokenCache.projectId === projectId && accessTokenCache.expiresAt > Date.now() + 60_000) {
     return { accessToken: accessTokenCache.accessToken, projectId };
@@ -392,6 +397,9 @@ export async function sendPushToUser(env, email, notification, withLock = null) 
 }
 
 export async function handlePushSocket(env, request, email) {
+  const url = new URL(request.url);
+  const origin = request.headers.get("Origin");
+  if (!origin || origin !== url.origin) return json({ error: "Origen de WebSocket no permitido" }, 403);
   if (request.method !== "GET" || String(request.headers.get("Upgrade") || "").toLowerCase() !== "websocket") {
     return json({ error: "Se requiere una conexión WebSocket" }, 426);
   }
