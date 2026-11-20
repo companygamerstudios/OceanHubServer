@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: oceanhub-native-validation-${{ github.workflow }}-${{ github.ref }}
+  group: oceanhub-native-validation-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
