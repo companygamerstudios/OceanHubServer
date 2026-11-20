@@ -59,6 +59,20 @@ function categoryForType(type) {
   return "social";
 }
 
+export function sanitizePushNotification(notification) {
+  const type = String(notification?.type || "info").slice(0, 40);
+  const category = categoryForType(type);
+  return {
+    type,
+    title: String(notification?.title || "OceanHub").slice(0, 120),
+    // Never expose private-message contents on lock screens or desktop toasts.
+    body: category === "messages"
+      ? "Tienes un nuevo mensaje privado. Abre OceanHub para leerlo."
+      : String(notification?.body || "Tienes una nueva notificación").slice(0, 180),
+    href: safeHref(notification?.href)
+  };
+}
+
 export function validatePushRegistration(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return { ok: false, reason: "invalid_body" };
   const platform = String(input.platform || "").toLowerCase();
@@ -300,9 +314,11 @@ async function removeDeviceById(env, email, deviceId, withLock = null) {
 async function sendFcmToDevice(env, email, device, notification, withLock = null) {
   const { accessToken, projectId } = await getFirebaseAccessToken(env);
   const token = await decryptPushToken(env, device.token);
-  const href = safeHref(notification.href);
-  const title = String(notification.title || "OceanHub").slice(0, 120);
-  const body = String(notification.body || "Tienes una nueva notificación").slice(0, 180);
+  const safeNotification = sanitizePushNotification(notification);
+  const href = safeNotification.href;
+  const title = safeNotification.title;
+  const body = safeNotification.body;
+  const category = categoryForType(safeNotification.type);
   const message = {
     token,
     notification: { title, body },
@@ -316,12 +332,13 @@ async function sendFcmToDevice(env, email, device, notification, withLock = null
   if (device.platform === "android") {
     message.android = {
       priority: "high",
+      ttl: category === "messages" ? "60s" : "86400s",
       notification: { channel_id: "oceanhub_messages", sound: "default" }
     };
   } else if (device.platform === "web") {
     const baseUrl = String(env.BASE_URL || "https://oceanhud.yoelenmanuelzorrilla.workers.dev").replace(/\/+$/, "");
     message.webpush = {
-      headers: { TTL: "86400", Urgency: "high" },
+      headers: { TTL: category === "messages" ? "60" : "86400", Urgency: "high" },
       notification: {
         title,
         body,
@@ -353,15 +370,18 @@ async function sendWindowsSocketEvent(env, email, notification) {
   const emailHash = await sha256(normalizedEmail(email));
   const id = env.KV_LOCKER.idFromName("push-live:" + emailHash);
   const stub = env.KV_LOCKER.get(id);
+  const safeNotification = sanitizePushNotification(notification);
+  const category = categoryForType(safeNotification.type);
   const response = await stub.fetch("https://push.internal/realtime/push/publish", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      title: String(notification.title || "OceanHub").slice(0, 120),
-      body: String(notification.body || "").slice(0, 180),
-      type: String(notification.type || "info").slice(0, 40),
-      href: safeHref(notification.href),
-      at: new Date().toISOString()
+      title: safeNotification.title,
+      body: safeNotification.body,
+      type: safeNotification.type,
+      href: safeNotification.href,
+      at: new Date().toISOString(),
+      ttl: category === "messages" ? 60 : 86400
     })
   });
   if (!response.ok) throw new Error("Push relay returned HTTP " + response.status);
