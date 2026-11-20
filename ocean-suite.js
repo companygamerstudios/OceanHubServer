@@ -873,7 +873,8 @@ async function handleLauncher() {
     linkCard("Game Party", "Crea salas públicas o privadas e invita a tus amigos.", "/parties") +
     linkCard("Ocean Events", "Descubre eventos y actividades próximas.", "/events") +
     linkCard("Community Feed", "Novedades y publicaciones de los usuarios.", "/feed") +
-    linkCard("Air Flow", "Herramientas de inteligencia artificial de OceanHub.", "/air-flow") +
+    linkCard("Descargar OceanHub", "Instala la aplicación en Windows o Android.", "/download") +
+        linkCard("Air Flow", "Herramientas de inteligencia artificial de OceanHub.", "/air-flow") +
     '</div><p class="muted">El Launcher centraliza proyectos existentes; no anuncia juegos ni descargas que todavía no estén publicados.</p>');
 }
 

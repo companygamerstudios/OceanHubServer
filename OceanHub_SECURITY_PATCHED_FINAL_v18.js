@@ -1,4 +1,5 @@
 import { handleOceanSuiteRoute, getVerifiedBadge, renderVerifiedBadge } from './ocean-suite.js';
+import { handleDownloadCenterRoute, injectAppUpdateNotice } from './download-center.js';
 
 // ==========================================================
 // 🌊 OCEAN HUB V29.1 — SOCIAL + editar perfil (bio/avatar) + notificaciones
@@ -105,12 +106,20 @@ async function createOAuthState(env, provider) {
 async function consumeOAuthState(env, request, provider) {
     const state = getCookieValue(request, 'oauth_state');
     if (!state || !/^[a-f0-9]{64}$/i.test(state)) return false;
-    const raw = await env.STATS.get(`oauth_state_${state}`);
-    if (!raw) return false;
-    let data;
-    try { data = JSON.parse(raw); } catch { data = null; }
-    await env.STATS.delete(`oauth_state_${state}`);
-    return !!data && data.provider === provider && Date.now() - Number(data.createdAt || 0) <= OAUTH_STATE_TTL * 1000;
+    // State validation and deletion must be one serialized operation; otherwise parallel
+    // callbacks can both observe the same state and complete OAuth twice.
+    return await withKVLock(env, `oauth-state:${state.toLowerCase()}`, async () => {
+        const storageKey = `oauth_state_${state}`;
+        const raw = await env.STATS.get(storageKey);
+        if (!raw) return false;
+        let data;
+        try { data = JSON.parse(raw); } catch { data = null; }
+        await env.STATS.delete(storageKey);
+        return !!data &&
+            data.provider === provider &&
+            Number.isFinite(Number(data.createdAt)) &&
+            Date.now() - Number(data.createdAt) <= OAUTH_STATE_TTL * 1000;
+    });
 }
 
 function getRequestDevice(request) {
@@ -1101,6 +1110,49 @@ export class KVLocker {
             });
             return Response.json({ typing });
         }
+        if (url.pathname === '/security/nonce/issue' && request.method === 'POST') {
+            let payload;
+            try { payload = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
+            const nonce = String(payload?.nonce || '');
+            const ipHash = String(payload?.ipHash || '');
+            const ttl = Number(payload?.ttl ?? 120);
+            if (!/^[A-F0-9]{32}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(ipHash) || !Number.isFinite(ttl)) {
+                return new Response('bad request', { status: 400 });
+            }
+            const now = Date.now();
+            const expiresAt = now + Math.min(Math.max(ttl, 1), 120) * 1000;
+            const issued = this.state.storage.transactionSync(() => {
+                const key = 'security_nonce:' + nonce;
+                const current = this.state.storage.kv.get(key);
+                if (current && Number(current.expiresAt || 0) > now) return false;
+                this.state.storage.kv.put(key, { ipHash, expiresAt });
+                return true;
+            });
+            return Response.json({ ok: issued }, { status: issued ? 201 : 409 });
+        }
+        if (url.pathname === '/security/nonce/consume' && request.method === 'POST') {
+            let payload;
+            try { payload = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
+            const nonce = String(payload?.nonce || '');
+            const ipHash = String(payload?.ipHash || '');
+            if (!/^[A-F0-9]{32}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(ipHash)) {
+                return new Response('bad request', { status: 400 });
+            }
+            const now = Date.now();
+            const consumed = this.state.storage.transactionSync(() => {
+                const key = 'security_nonce:' + nonce;
+                const current = this.state.storage.kv.get(key);
+                if (!current) return false;
+                if (Number(current.expiresAt || 0) <= now) {
+                    this.state.storage.kv.delete(key);
+                    return false;
+                }
+                if (!timingSafeCompare(String(current.ipHash || ''), ipHash)) return false;
+                this.state.storage.kv.delete(key);
+                return true;
+            });
+            return Response.json({ ok: consumed });
+        }
         if (url.pathname === '/acquire' && request.method === 'POST') {
             let payload;
             try { payload = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
@@ -1506,18 +1558,35 @@ function generateNonce() {
 }
 
 async function getNonce(env, ip) {
+    if (!env?.KV_LOCKER) throw new Error('KV_LOCKER no configurado para emitir Nonces');
     const nonce = generateNonce();
-    const nonceKey = `nonce_${nonce}`;
-    await env.STATS.put(nonceKey, "1", { expirationTtl: NONCE_TTL });
+    const ipHash = await hashKey(String(ip || 'unknown'));
+    const stub = env.KV_LOCKER.get(env.KV_LOCKER.idFromName('security-nonces'));
+    const response = await stub.fetch('https://kv-lock/security/nonce/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nonce, ipHash, ttl: NONCE_TTL })
+    });
+    if (!response.ok) throw new Error('No se pudo emitir el Nonce de seguridad');
     return nonce;
 }
 
 async function verifyNonce(env, nonce, ip) {
-    const nonceKey = `nonce_${nonce}`;
-    const stored = await env.STATS.get(nonceKey);
-    if (!stored) return false;
-    await env.STATS.delete(nonceKey);
-    return true;
+    if (!env?.KV_LOCKER || !/^[A-F0-9]{32}$/.test(String(nonce || ''))) return false;
+    const ipHash = await hashKey(String(ip || 'unknown'));
+    const stub = env.KV_LOCKER.get(env.KV_LOCKER.idFromName('security-nonces'));
+    const response = await stub.fetch('https://kv-lock/security/nonce/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nonce: String(nonce), ipHash })
+    });
+    if (!response.ok) return false;
+    try {
+        const result = await response.json();
+        return result?.ok === true;
+    } catch {
+        return false;
+    }
 }
 
 function computeHmac(data, secret) {
@@ -2460,15 +2529,21 @@ async function handleResetPassword(env, request) {
 // ==================================================
 
 async function handleGetNonce(env, request) {
+    if (request.method !== 'GET') return jsonResponse({ error: 'Método no permitido' }, 405, { 'Allow': 'GET' });
     const ip = getClientIP(request);
+    if (!(await checkActionRateLimit(env, 'hmac-nonce-issue', ip, 60, 60))) {
+        return jsonResponse({ error: 'Demasiadas solicitudes de Nonce. Espera un minuto.' }, 429);
+    }
     const nonce = await getNonce(env, ip);
-    return jsonResponse({ nonce });
+    return jsonResponse({ nonce }, 200, { 'Cache-Control': 'no-store', 'Pragma': 'no-cache' });
 }
 
 async function handleVerify(env, request) {
     if (request.method !== 'POST') {
         return jsonResponse({ success: false, error: 'Usa POST con key, timestamp, nonce y hmac en el cuerpo' }, 405, { 'Allow': 'POST' });
     }
+    const declaredLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredLength > 16 * 1024) return jsonResponse({ success: false, error: 'Solicitud demasiado grande' }, 413);
     let body;
     try {
         const contentType = request.headers.get('Content-Type') || '';
@@ -3194,6 +3269,12 @@ async function handleGenerateBatch(env, url, request) {
     return jsonResponse({ message: `Generadas ${keys.length} claves`, keys });
 }
 
+export function safeCsvCell(value) {
+    let text = String(value ?? '');
+    if (/^[\u0000-\u0020]*[=+\-@]/.test(text)) text = "'" + text;
+    return '"' + text.replace(/"/g, '""') + '"';
+}
+
 async function handleExportCsv(env, url) {
 
     const filtros = {
@@ -3227,10 +3308,16 @@ async function handleExportCsv(env, url) {
         }
     }
 
-    let csv = 'Clave,Rango,Tipo,Duración,Usos,Estado,Dinámica,Tags,Notas,UnSoloUso\n';
+    const columns = ['Clave','Rango','Tipo','Duración','Usos','Estado','Dinámica','Tags','Notas','UnSoloUso'];
+    const rows = [columns.map(safeCsvCell).join(',')];
     allKeys.forEach(k => {
-        csv += `${k.key},${k.rango},${k.type},${k.expires},${k.uses},${k.blocked ? 'Bloqueada' : 'Activa'},${k.dynamic ? 'Sí' : 'No'},${k.tags},${k.notas},${k.un_solo_uso ? 'Sí' : 'No'}\n`;
+        rows.push([
+            k.key, k.rango, k.type, k.expires, k.uses,
+            k.blocked ? 'Bloqueada' : 'Activa', k.dynamic ? 'Sí' : 'No',
+            k.tags, k.notas, k.un_solo_uso ? 'Sí' : 'No'
+        ].map(safeCsvCell).join(','));
     });
+    const csv = '\uFEFF' + rows.join('\r\n') + '\r\n';
     return new Response(csv, {
         headers: {
             'Content-Type': 'text/csv',
@@ -3349,17 +3436,38 @@ async function handleClaimKey(env, request) {
     const auth = await requireAuth(env, request); if (!auth) return new Response('No autorizado',{status:403});
     if (!(await checkRateLimit(env, getClientIP(request), null))) return jsonResponse({error:'Demasiados intentos'},429);
     const url = new URL(request.url);
-    const codigo = url.searchParams.get('codigo');
     const email = auth.user.email;
+    let codigo = '';
+    if (request.method === 'POST') {
+        try {
+            const contentType = request.headers.get('Content-Type') || '';
+            if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
+                const form = await request.formData();
+                codigo = String(form.get('codigo') || '').trim();
+            } else if (contentType.includes('application/json')) {
+                const payload = await request.json();
+                codigo = String(payload?.codigo || '').trim();
+            } else {
+                return jsonResponse({ error: 'Content-Type no compatible' }, 415);
+            }
+        } catch {
+            return jsonResponse({ error: 'Solicitud de canje no válida' }, 400);
+        }
+    } else if (request.method === 'GET') {
+        if (url.searchParams.has('codigo')) {
+            return jsonResponse({ error: 'Por seguridad, canjea el código mediante POST.' }, 405, { 'Allow': 'GET, POST' });
+        }
+    } else {
+        return jsonResponse({ error: 'Método no permitido' }, 405, { 'Allow': 'GET, POST' });
+    }
 
-    if (request.method === 'GET' && !codigo) {
+    if (request.method === 'GET') {
         return new Response(`
             <html><body style="background:#0a1a2b;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:monospace;">
                 <div style="text-align:center;max-width:400px;">
                     <h2 style="color:#00ccff;">🎫 Canjear código</h2>
-                    <form method="GET" action="/claim-key">
-                        <input type="text" name="codigo" placeholder="Código de canje" style="padding:10px;border-radius:8px;border:none;margin:5px;width:100%;">
-                        <input type="email" name="email" placeholder="Tu email" style="padding:10px;border-radius:8px;border:none;margin:5px;width:100%;">
+                    <form method="POST" action="/claim-key">
+                        <input type="text" name="codigo" autocomplete="off" placeholder="Código de canje" required style="padding:10px;border-radius:8px;border:none;margin:5px;width:100%;">
                         <button type="submit" style="padding:10px 30px;background:#00ccff;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Canjear</button>
                     </form>
                 </div>
@@ -6651,9 +6759,12 @@ async function handleShop(env, request) {
         async function comprar(priceId) {
             try {
                 const coupon = document.getElementById('couponInput') ? document.getElementById('couponInput').value.trim() : '';
-                let url = '/shop/create-checkout?price_id=' + encodeURIComponent(priceId);
-                if (coupon) url += '&coupon=' + encodeURIComponent(coupon);
-                const res = await fetch(url, { credentials: 'same-origin' });
+                const res = await fetch('/shop/create-checkout', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ price_id: priceId, coupon })
+                });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(data.error || 'No se pudo crear la orden.');
                 if (data.links && data.links.length) {
@@ -7923,14 +8034,198 @@ async function getAllUsers(env) {
     return users;
 }
 
+const BACKUP_MAX_KEYS = 450;
+const BACKUP_MAX_BYTES = 6 * 1024 * 1024;
+const BACKUP_PREFIX = 'oceanhub/backups/';
+const BACKUP_EXCLUDED_PREFIXES = [
+    'session_', 'oauth_state_', 'nonce_', 'otp_', '2fa_temp_', 'reset_', 'pwd_reset_', 'password_reset_',
+    'email_verify_', 'blacklist_', 'ip_failures_', 'pin_fail_', 'action_rate_',
+    'rate_limit_', 'rl_ip_', 'rl_key_', 'rl_action_', 'lock_', 'security_nonce:'
+];
+function isTransientBackupKey(name) {
+    const key = String(name || '');
+    return !key || BACKUP_EXCLUDED_PREFIXES.some(prefix => key.startsWith(prefix));
+}
+async function buildBackupSnapshot(env) {
+    if (!env?.STATS || typeof env.STATS.list !== 'function') throw new Error('STATS no permite enumerar claves');
+    const entries = [];
+    let bytes = 0;
+    let cursor;
+    do {
+        const page = await env.STATS.list({ cursor, limit: 1000 });
+        const eligible = (page.keys || []).filter(item => !isTransientBackupKey(item.name));
+        for (let offset = 0; offset < eligible.length; offset += 20) {
+            const batch = eligible.slice(offset, offset + 20);
+            const values = await Promise.all(batch.map(item => env.STATS.get(item.name)));
+            for (let index = 0; index < batch.length; index++) {
+                const value = values[index];
+                if (value === null || value === undefined) continue;
+                const item = batch[index];
+                bytes += new TextEncoder().encode(String(value)).length;
+                if (entries.length >= BACKUP_MAX_KEYS || bytes > BACKUP_MAX_BYTES) {
+                    throw new Error('El conjunto de datos supera el límite de respaldo de esta versión; se requiere backup por fragmentos.');
+                }
+                entries.push({
+                    name: item.name, value: String(value),
+                    ...(Number.isFinite(Number(item.expiration)) ? { expiration: Number(item.expiration) } : {}),
+                    ...(item.metadata && typeof item.metadata === 'object' ? { metadata: item.metadata } : {})
+                });
+            }
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+    return { format: 'OceanHubKVBackup', version: 1, namespace: 'STATS', created_at: new Date().toISOString(), entry_count: entries.length, entries };
+}
+async function writeEncryptedBackup(env, purpose = 'manual') {
+    if (!env?.BACKUPS || typeof env.BACKUPS.put !== 'function') throw new Error('BACKUPS_R2_NOT_CONFIGURED');
+    const snapshot = await buildBackupSnapshot(env);
+    const envelope = await encryptBackupPayload(env, JSON.stringify(snapshot));
+    const id = new Date().toISOString().replace(/[:.]/g, '-') + '-' + generateRandomHex(8).toLowerCase();
+    const key = BACKUP_PREFIX + id + '-' + String(purpose).replace(/[^a-z0-9-]/gi, '').slice(0, 24) + '.json.enc';
+    await env.BACKUPS.put(key, envelope, {
+        httpMetadata: { contentType: 'application/octet-stream', cacheControl: 'no-store' },
+        customMetadata: { format: 'OceanHubEncryptedBackup', version: '1', entryCount: String(snapshot.entry_count), purpose: String(purpose).slice(0, 24) }
+    });
+    return { key, entry_count: snapshot.entry_count, created_at: snapshot.created_at };
+}
+async function handleAccountExport(env, request) {
+    if (request.method !== 'GET') return jsonResponse({ error: 'Usa GET para exportar tus datos.' }, 405, { 'Allow': 'GET' });
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    const email = String(auth.user.email || '').toLowerCase();
+    try {
+        const safeProfile = { ...auth.user };
+        // Never export password material, TOTP seeds or session-control internals.
+        for (const field of ['passwordHash', 'salt', 'otp_secret', 'otp_last_counter', 'sessionVersion']) delete safeProfile[field];
+        const purchases = await getCompras(env, 1000, 0, { email });
+        const reseller = await getReseller(env, email);
+        const safeReseller = reseller ? {
+            role: reseller.role,
+            seller_id: reseller.seller_id,
+            username: reseller.username,
+            rank: getOceanSellerRank(reseller),
+            assigned_key_count: Array.isArray(reseller.claves_asignadas) ? reseller.claves_asignadas.length : 0,
+            sold_key_count: Array.isArray(reseller.claves_vendidas) ? reseller.claves_vendidas.length : 0
+        } : null;
+        const payload = {
+            format: 'OceanHubAccountExport',
+            version: 1,
+            generated_at: new Date().toISOString(),
+            scope: ['profile', 'purchases_and_keys', 'subscription', 'referral_summary', 'recent_login_history', 'seller_summary'],
+            profile: safeProfile,
+            purchases: purchases.compras,
+            purchases_total: purchases.total,
+            subscription: await getSuscripcionUsuario(env, email),
+            referral_summary: {
+                invited_accounts: (await getReferidosDe(env, email)).length,
+                earned_commission: await getComisionesDe(env, email)
+            },
+            recent_login_history: await getLoginHistory(env, email, 100),
+            seller_summary: safeReseller,
+            exclusions: [
+                'password hashes and salts',
+                'authenticator seeds and active sessions',
+                'private messages and other users personal data',
+                'operational security logs and fraud signals'
+            ]
+        };
+        return new Response(JSON.stringify(payload, null, 2), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Disposition': 'attachment; filename="oceanhub-account-export.json"',
+                'Cache-Control': 'no-store, private',
+                'Pragma': 'no-cache',
+                'X-Content-Type-Options': 'nosniff'
+            }
+        });
+    } catch (error) {
+        console.error('Account data export failed:', error?.message || error);
+        return jsonResponse({ error: 'No se pudo preparar la exportación de datos.' }, 500, { 'Cache-Control': 'no-store' });
+    }
+}
+
 async function handleBackup(env, request) {
-    if (!request || request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
     const auth = await requireAdmin(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
-    return jsonResponse({
-        error: 'Las copias de seguridad del servidor están desactivadas en esta versión porque no usa almacenamiento externo. Los datos activos permanecen en STATS; no ejecutes migraciones destructivas sin una copia segura independiente.',
-        code: 'BACKUP_DISABLED_NO_EXTERNAL_STORAGE'
-    }, 410);
+    if (!env?.BACKUPS) return jsonResponse({
+        error: 'Configura primero un bucket R2 independiente con el binding BACKUPS y el secreto BACKUP_ENCRYPTION_SECRET.',
+        code: 'BACKUPS_R2_NOT_CONFIGURED'
+    }, 503);
+    if (request.method === 'GET') {
+        try {
+            const listing = await env.BACKUPS.list({ prefix: BACKUP_PREFIX, limit: 100 });
+            return jsonResponse({
+                backups: (listing.objects || []).map(object => ({
+                    key: object.key, size: object.size,
+                    uploaded_at: object.uploaded ? new Date(object.uploaded).toISOString() : null,
+                    entry_count: object.customMetadata?.entryCount || null,
+                    purpose: object.customMetadata?.purpose || 'manual'
+                })),
+                truncated: Boolean(listing.truncated)
+            });
+        } catch (error) {
+            return jsonResponse({ error: 'No se pudo consultar el almacenamiento de respaldos.' }, 502);
+        }
+    }
+    if (request.method !== 'POST') return jsonResponse({ error: 'Usa GET para listar o POST para operar respaldos.' }, 405, { 'Allow': 'GET, POST' });
+    let payload;
+    try {
+        if (!(request.headers.get('Content-Type') || '').includes('application/json')) return jsonResponse({ error: 'Content-Type no compatible' }, 415);
+        payload = await request.json();
+    } catch {
+        return jsonResponse({ error: 'JSON inválido' }, 400);
+    }
+    const pin = String(payload?.pin || '');
+    if (!env.ADMIN_SECOND_PIN || !timingSafeCompare(pin, String(env.ADMIN_SECOND_PIN))) {
+        return jsonResponse({ error: 'PIN administrativo incorrecto' }, 403);
+    }
+    if (payload?.action === 'create') {
+        if (payload?.confirm !== 'CREATE_OCEANHUB_BACKUP') return jsonResponse({ error: 'Falta confirmación explícita de creación.' }, 400);
+        try {
+            const backup = await writeEncryptedBackup(env, 'manual');
+            return jsonResponse({ ok: true, backup });
+        } catch (error) {
+            const missingBinding = error?.message === 'BACKUPS_R2_NOT_CONFIGURED';
+            return jsonResponse({
+                error: missingBinding ? 'Binding R2 BACKUPS no configurado.' : 'No se pudo crear el respaldo cifrado.',
+                code: missingBinding ? 'BACKUPS_R2_NOT_CONFIGURED' : 'BACKUP_CREATE_FAILED'
+            }, missingBinding ? 503 : 500);
+        }
+    }
+    if (payload?.action === 'restore') {
+        if (payload?.confirm !== 'RESTORE_OCEANHUB_ADD_ONLY') {
+            return jsonResponse({ error: 'Confirma RESTORE_OCEANHUB_ADD_ONLY. La restauración solo agrega o actualiza; nunca borra claves actuales.' }, 400);
+        }
+        const key = String(payload?.key || '');
+        if (!key.startsWith(BACKUP_PREFIX) || !key.endsWith('.json.enc') || key.length > 300) return jsonResponse({ error: 'Identificador de respaldo inválido.' }, 400);
+        try {
+            const object = await env.BACKUPS.get(key);
+            if (!object) return jsonResponse({ error: 'Respaldo no encontrado.' }, 404);
+            const snapshot = JSON.parse(await decryptBackupPayload(env, await object.text()));
+            if (snapshot?.format !== 'OceanHubKVBackup' || snapshot?.version !== 1 || snapshot?.namespace !== 'STATS' || !Array.isArray(snapshot.entries) || snapshot.entries.length > BACKUP_MAX_KEYS) {
+                return jsonResponse({ error: 'Formato de respaldo no compatible.' }, 400);
+            }
+            const safetyCopy = await writeEncryptedBackup(env, 'pre-restore');
+            const restored = await withKVLock(env, 'backup-restore', async () => {
+                let count = 0;
+                for (const entry of snapshot.entries) {
+                    if (!entry || typeof entry.name !== 'string' || entry.name.length > 512 || isTransientBackupKey(entry.name) || typeof entry.value !== 'string') continue;
+                    const options = {};
+                    if (Number.isFinite(Number(entry.expiration)) && Number(entry.expiration) > Math.floor(Date.now() / 1000)) options.expiration = Number(entry.expiration);
+                    if (entry.metadata && typeof entry.metadata === 'object') options.metadata = entry.metadata;
+                    await env.STATS.put(entry.name, entry.value, options);
+                    count++;
+                }
+                return count;
+            }, 110000);
+            return jsonResponse({ ok: true, restored_entries: restored, safety_backup: safetyCopy, mode: 'additive' });
+        } catch (error) {
+            console.error('Encrypted backup restore failed:', error?.message || error);
+            return jsonResponse({ error: 'No se pudo completar la restauración; revisa el respaldo y el registro administrativo.' }, 500);
+        }
+    }
+    return jsonResponse({ error: 'Acción de respaldo no reconocida.' }, 400);
 }
 async function handleUploadKeys(env, request) {
     const auth = await requireAdmin(env, request);
@@ -8293,27 +8588,59 @@ async function handlePayPalWebhook(env, request) {
     });
     const vd = await vr.json();
     if (!vr.ok || vd.verification_status !== 'SUCCESS') return jsonResponse({error:'Firma no válida'},403);
-    if (body.event_type === 'PAYMENT.CAPTURE.COMPLETED') {
-        const orderId = body.resource?.supplementary_data?.related_ids?.order_id;
-        if (!orderId) return jsonResponse({ error: 'orderId ausente en el evento de PayPal' }, 400);
-        try {
-            // The webhook describes an already-completed capture. Fetch the order details;
-            // do not attempt to capture the same order a second time.
-            const orderData = await getPayPalOrderData(env, orderId);
-            if (orderData?.status !== 'COMPLETED') {
-                return jsonResponse({ error: 'La orden todavía no está completada' }, 409);
+    const eventId = String(body.id || '').trim();
+    if (!/^[A-Za-z0-9_-]{5,128}$/.test(eventId)) return jsonResponse({ error: 'ID de evento PayPal ausente o inválido' }, 400);
+    const eventKey = 'paypal_event_' + await hashKey(eventId);
+    try {
+        return await withKVLock(env, `paypal_event_${eventId}`, async () => {
+            const previous = await env.STATS.get(eventKey, 'json');
+            if (previous && ['processed', 'manual_review', 'ignored'].includes(previous.status)) {
+                return jsonResponse({ status: 'duplicate_ignored' });
             }
-            return await handlePayPalCapture(
-                env,
-                new Request(`${getBaseUrl(env)}/paypal/capture?orderId=${encodeURIComponent(orderId)}`),
-                orderData
-            );
-        } catch (error) {
-            console.error('PayPal webhook fulfillment failed:', error?.message || error);
-            return jsonResponse({ error: 'No se pudo procesar el evento de PayPal' }, 502);
-        }
+            if (body.event_type === 'PAYMENT.CAPTURE.COMPLETED') {
+                const orderId = body.resource?.supplementary_data?.related_ids?.order_id;
+                if (!orderId) return jsonResponse({ error: 'orderId ausente en el evento de PayPal' }, 400);
+                const orderData = await getPayPalOrderData(env, orderId);
+                if (orderData?.status !== 'COMPLETED') {
+                    return jsonResponse({ error: 'La orden todavía no está completada' }, 409);
+                }
+                const result = await handlePayPalCapture(
+                    env,
+                    new Request(`${getBaseUrl(env)}/paypal/capture?orderId=${encodeURIComponent(orderId)}`),
+                    orderData
+                );
+                if (result.status === 200 || result.status === 202) {
+                    await env.STATS.put(eventKey, JSON.stringify({
+                        status: result.status === 202 ? 'manual_review' : 'processed',
+                        event_type: body.event_type, order_id: orderId,
+                        processed_at: new Date().toISOString()
+                    }), { expirationTtl: 31536000 });
+                }
+                return result;
+            }
+            const reviewTypes = new Set([
+                'PAYMENT.CAPTURE.REFUNDED', 'PAYMENT.CAPTURE.REVERSED',
+                'CUSTOMER.DISPUTE.CREATED', 'CUSTOMER.DISPUTE.UPDATED', 'CUSTOMER.DISPUTE.RESOLVED'
+            ]);
+            if (reviewTypes.has(String(body.event_type || ''))) {
+                await sendAlert(env, `⚠️ PayPal requiere conciliación manual: ${String(body.event_type).slice(0, 80)} (evento ${eventId})`, 'pago');
+                await env.STATS.put(eventKey, JSON.stringify({
+                    status: 'manual_review', event_type: body.event_type,
+                    resource_id: String(body.resource?.id || '').slice(0, 120),
+                    processed_at: new Date().toISOString()
+                }), { expirationTtl: 31536000 });
+                return jsonResponse({ status: 'manual_review' }, 202);
+            }
+            await env.STATS.put(eventKey, JSON.stringify({
+                status: 'ignored', event_type: String(body.event_type || 'unknown').slice(0, 100),
+                processed_at: new Date().toISOString()
+            }), { expirationTtl: 31536000 });
+            return jsonResponse({ status: 'ignored' });
+        }, 110000);
+    } catch (error) {
+        console.error('PayPal webhook event processing failed:', error?.message || error);
+        return jsonResponse({ error: 'No se pudo procesar el evento de PayPal' }, 502);
     }
-    return jsonResponse({status:'ok'});
 }
 
 async function handleLeaderboard(env) {
@@ -8748,8 +9075,12 @@ async function handleSubscribe(env, request) {
     </div>
     <script>
         function comprarSuscripcion(plan) {
-            const email = ${JSON.stringify(auth.user.email)};
-            fetch('/shop/create-checkout?tipo=suscripcion&plan=' + plan + '&email=' + encodeURIComponent(email))
+            fetch('/shop/create-checkout', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tipo: 'suscripcion', plan: plan })
+            })
                 .then(res => res.json())
                 .then(data => {
                     if (data.links && data.links.length) {
@@ -8774,11 +9105,13 @@ async function handleSubscribe(env, request) {
 }
 
 async function handlePaySubscription(env, request) {
+    if (request.method !== 'POST') return jsonResponse({ error: 'Usa POST para iniciar el pago.' }, 405, { 'Allow': 'POST' });
     const auth = await requireAuth(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
-    const url = new URL(request.url);
-    const plan = url.searchParams.get('plan');
-    if (!plan) return jsonResponse({ error: 'Falta el plan' }, 400);
+    let payload;
+    try { payload = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
+    const plan = String(payload?.plan || '');
+    if (!plan || !SUSCRIPCION_PLANES[plan]) return jsonResponse({ error: 'Plan no válido' }, 400);
     // Never trust a client-supplied email for payment entitlement assignment.
     try {
         const order = await createPayPalOrderSuscripcion(env, plan, auth.user.email);
@@ -8804,8 +9137,26 @@ async function handleCronJobs(env, request) {
 // [ GATE DE AUTENTICACIÓN ]
 // ==================================================
 
+function isCrossSiteMutation(request, requestUrl) {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(String(request.method || 'GET').toUpperCase())) return false;
+    const origin = request.headers.get('Origin');
+    if (origin) {
+        try {
+            if (new URL(origin).origin !== requestUrl.origin) return true;
+        } catch {
+            return true;
+        }
+    }
+    return request.headers.get('Sec-Fetch-Site') === 'cross-site';
+}
+
 function isPublicRoute(path) {
     const publicPaths = [
+        '/download',
+        '/api/app/version',
+        '/app.webmanifest',
+        '/sw.js',
+        '/ocean-icon.svg',
         '/welcome',
         '/login',
         '/register',
@@ -9767,12 +10118,13 @@ async function handleCommunityPresenceHeartbeat(env, request) {
             const status = await communityGetStatus(env, publicFriend.email);
             let isOnline;
             if (onlineMap) isOnline = onlineMap[hashes[i]] === true;
-            else isOnline = !!(await env.STATS.get(await communityPresenceKey(env, publicFriend.email)));
+            else isOnline = !!(await env.STATS.get(await communityPresenceKey(publicFriend.email)));
             if (status.status === 'invisible') isOnline = false;
+            const visibleStatus = isOnline ? status.status : 'offline';
             friends.push({
                 ...publicFriend,
                 online: isOnline,
-                status: status.status,
+                status: visibleStatus,
                 status_label: isOnline ? (OH_STATUS_LABELS[status.status] || 'Disponible') : 'Desconectado',
                 note: isOnline ? status.note : ''
             });
@@ -10748,6 +11100,13 @@ export async function workerFetch(request, env) {
         const url = new URL(request.url);
         const path = url.pathname;
 
+        if (getCookieValue(request, 'session_token') && isCrossSiteMutation(request, url)) {
+            return jsonResponse({ error: 'Solicitud cross-site bloqueada' }, 403);
+        }
+
+        const downloadCenterResponse = await handleDownloadCenterRoute(request);
+        if (downloadCenterResponse) return downloadCenterResponse;
+
         if (adminProtectedPath(path)) {
             const adminAuth = await requireAdmin(env, request);
             if (!adminAuth) return jsonResponse({ error: 'No autorizado' }, 403);
@@ -10876,37 +11235,44 @@ export async function workerFetch(request, env) {
         if (path === '/qr-totp') return await handleQR(env, url);
         if (path === '/sse') return await handleSSE(env);
         if (path === '/shop/create-checkout') {
+            if (request.method !== 'POST') return jsonResponse({ error: 'Usa POST para crear una orden de pago.' }, 405, { 'Allow': 'POST' });
             const checkoutAuth = await requireAuth(env, request);
             if (!checkoutAuth) return jsonResponse({ error: 'No autorizado' }, 403);
-            const tipo = url.searchParams.get('tipo') || 'dlc';
-            // The authenticated account owns the purchase; ignore any email supplied by the client.
+            const declaredLength = Number(request.headers.get('Content-Length') || 0);
+            if (declaredLength > 8192) return jsonResponse({ error: 'Solicitud demasiado grande' }, 413);
+            let payload;
+            try {
+                if (!(request.headers.get('Content-Type') || '').includes('application/json')) return jsonResponse({ error: 'Content-Type no compatible' }, 415);
+                payload = await request.json();
+            } catch {
+                return jsonResponse({ error: 'JSON inválido' }, 400);
+            }
+            const tipo = String(payload?.tipo || 'dlc');
             const email = checkoutAuth.user.email;
-            const coupon = url.searchParams.get('coupon') || null;
+            const coupon = String(payload?.coupon || '').trim() || null;
             try { await getAtRestCryptoKey(env); }
             catch (encryptionConfigError) {
                 return jsonResponse({ error: 'Las compras están temporalmente deshabilitadas por configuración de seguridad.' }, 503);
             }
             if (tipo === 'suscripcion') {
-                const plan = url.searchParams.get('plan');
-                if (!plan) return jsonResponse({ error: 'Falta plan' }, 400);
+                const plan = String(payload?.plan || '');
+                if (!plan || !SUSCRIPCION_PLANES[plan]) return jsonResponse({ error: 'Plan no válido' }, 400);
                 try {
                     const order = await createPayPalOrderSuscripcion(env, plan, email, coupon);
                     return jsonResponse(order);
                 } catch (e) {
-                    return jsonResponse({ error: 'No se pudo crear la orden de pago' }, 500);
+                    return jsonResponse({ error: 'No se pudo crear la orden de pago' }, 502);
                 }
-            } else {
-                const priceId = url.searchParams.get('price_id') || 'price_aprendiz';
-                const metadata = {
-                    email: email,
-                    user_id: url.searchParams.get('user_id') || '',
-                };
-                try {
-                    const order = await createPayPalOrder(env, priceId, metadata, coupon);
-                    return jsonResponse(order);
-                } catch (e) {
-                    return jsonResponse({ error: 'No se pudo crear la orden de pago' }, 500);
-                }
+            }
+            if (tipo !== 'dlc') return jsonResponse({ error: 'Tipo de compra no válido' }, 400);
+            const priceId = String(payload?.price_id || 'price_aprendiz');
+            if (!PRODUCTS[priceId]) return jsonResponse({ error: 'Producto no válido' }, 400);
+            const metadata = { email, user_id: String(checkoutAuth.user.id || '') };
+            try {
+                const order = await createPayPalOrder(env, priceId, metadata, coupon);
+                return jsonResponse(order);
+            } catch (e) {
+                return jsonResponse({ error: 'No se pudo crear la orden de pago' }, 502);
             }
         }
         if (path === '/paypal/capture') return await handlePayPalCapture(env, request);
@@ -10956,6 +11322,7 @@ export async function workerFetch(request, env) {
             }
         }
         if (path === '/cancelar-renovacion') {
+            if (request.method !== 'POST') return jsonResponse({ error: 'Usa POST para cambiar la renovación.' }, 405, { 'Allow': 'POST' });
             const auth = await requireAuth(env, request);
             if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
             await cancelarRenovacionSuscripcion(env, auth.user.email);
@@ -10993,6 +11360,7 @@ export async function workerFetch(request, env) {
         if (path === '/admin/users') return await handleAdminUsers(env, url, request);
         if (path === '/admin/user-action') return await handleAdminUserAction(env, request);
         if (path === '/admin/backup') return await handleBackup(env, request);
+        if (path === '/account/export') return await handleAccountExport(env, request);
         if (path === '/admin/upload-keys') return await handleUploadKeys(env, request);
 
         if (path === '/google-site-verification=pGiqWX9w9sbdMXnEixc6AcgLhGlC15_RoZbvhzsm1j0') return new Response('google-site-verification=pGiqWX9w9sbdMXnEixc6AcgLhGlC15_RoZbvhzsm1j0', { headers: { 'Content-Type': 'text/html' } });
@@ -11322,6 +11690,22 @@ export async function applySecurityHeaders(response, festivityConfig = null) {
     // IMPORTANTE CSP3: si hay nonce o hash, 'unsafe-inline' se IGNORA.
     // Por eso NO usamos nonce aquí: el app tiene scripts inline legítimos
     // y scripts externos en 'self' (/air-flow/app.js).
+    headers.set('Content-Security-Policy-Report-Only', [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com",
+        "style-src 'self' https://fonts.googleapis.com",
+        "img-src 'self' data: blob: https:",
+        "font-src 'self' data: https://fonts.gstatic.com",
+        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com",
+        "frame-src 'self' https://www.paypal.com",
+        "media-src 'self' blob:",
+        "worker-src 'self' blob:",
+        "upgrade-insecure-requests"
+    ].join('; '));
     headers.set('Content-Security-Policy', [
         "default-src 'self'",
         "base-uri 'self'",
@@ -11365,7 +11749,9 @@ export default {
             if (responseType.includes('text/html') || !responseType || responseType.startsWith('text/plain')) {
                 try { festivityConfig = await env.STATS.get(FESTIVITY_STORAGE_KEY, 'json'); } catch (_) {}
             }
-            return await applySecurityHeaders(response, festivityConfig);
+            const securedResponse = await applySecurityHeaders(response, festivityConfig);
+            const requestPath = new URL(request.url).pathname;
+            return await injectAppUpdateNotice(securedResponse, request.method === 'GET' && !isPublicRoute(requestPath));
         } catch (error) {
             console.error('❌ Error no controlado en el Worker:', error);
             return await applySecurityHeaders(jsonResponse({

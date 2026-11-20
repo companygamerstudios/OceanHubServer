@@ -33,10 +33,22 @@ This PR is a first, bounded remediation pass. It does not claim all 100 checklis
 5. Configure Cloudflare Access/IP allowlisting for admin routes and verify OAuth login cannot bypass enforced 2FA; confirm actual cookie/session invalidation behavior.
 6. Verify production KV, rate limits, webhook signatures/idempotency, provider credentials and end-to-end flows with authorized tests.
 7. Configure Cloudflare logs/alerts, email SPF/DKIM/DMARC and inbox tests, and a separate staging Worker/KV namespace with Sandbox credentials.
-8. Create an encrypted off-site backup, then perform and record a restoration test.
+8. Before production, define an affordable off-site recovery method and test it. Cloudflare R2 is optional and is explicitly outside the four active phases; do not create a paid bucket just to test this branch.
 9. Manually test accessibility, iPhone/Android layouts, legal text and privacy/cookie handling, plus account export/deletion and purchase lifecycle.
 10. Commission an external penetration test before launch.
 
 **Wrangler note:** item 53 of the supplied list assumes `secrets.required` is non-standard. I checked Cloudflare's current [Wrangler configuration documentation](https://developers.cloudflare.com/workers/wrangler/configuration/), which documents this field as supported and says deployment validates it. This branch therefore keeps the supported field instead of removing it. Item 52 remains a review decision: `keep_vars: true` preserves dashboard variables and can allow drift, so remove it only after checking the live dashboard settings.
 
 The CI suite is not a full pentest. It does not call Cloudflare production, list secret values, touch user KV data, rotate provider credentials, create new Cloudflare resources or deploy a Worker.
+
+
+## Segunda pasada — rama five-phase-execution
+
+Se añadieron Nonces atómicos con consumo en Durable Object ligado al hash de IP, limitación de emisión, controles cross-site para mutaciones con cookie, métodos POST para checkout/canje/cancelación, protección CSV, CSP Report-Only más estricta y ledger de eventos PayPal. Se añadió exportación de datos de cuenta sin hashes de contraseña, sal, semillas 2FA ni sesiones. El backup cifrado depende de R2 y de `BACKUP_ENCRYPTION_SECRET`; no se ha probado ni habilitado en producción. Marketplace sigue sin checkout/payout y la eliminación total de cuenta sigue pendiente de una política de retención y mapa de dependencias.
+
+
+## Controles adicionales de la rama five-phase-execution
+
+- El consumo de OAuth state ahora se serializa con Durable Object lock, y el registro se elimina dentro de la sección crítica para impedir que dos callbacks acepten el mismo state en paralelo.
+- Se agregó una prueba de integración HMAC para el flujo `/get-nonce` + `/verify`, incluida la protección contra replay y el enlace de IP.
+- Se añadió guía de prueba manual para clientes Lua; recuerda que un secreto incrustado en un script cliente distribuido puede extraerse y no sustituye autenticación por usuario/dispositivo.

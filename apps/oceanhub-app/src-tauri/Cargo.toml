@@ -1,0 +1,25 @@
+[package]
+name = "oceanhub_app"
+version = "3.0.0"
+description = "OceanHub Android mobile application"
+authors = ["COMPANY GAMER STUDIOS"]
+edition = "2021"
+
+[lib]
+name = "oceanhub_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+# Keep installable CI APKs small while retaining debuggable Rust behavior.
+[profile.dev]
+debug = 0
+strip = "debuginfo"

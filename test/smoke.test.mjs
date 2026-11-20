@@ -1,11 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import worker, { getPayPalMode } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
+import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
 
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
 const local = JSON.parse(await readFile(new URL('../wrangler.local.jsonc', import.meta.url), 'utf8'));
+const nativeWorkflow = await readFile(new URL('../.github/workflows/oceanhub-native-validation.yml', import.meta.url), 'utf8');
+const deployWorkflow = await readFile(new URL('../.github/workflows/deploy-production.yml', import.meta.url), 'utf8');
+
+test('native build CI creates and validates only a directly downloadable Android APK', () => {
+  assert.ok(nativeWorkflow.includes('Configure Maven repositories for Android Gradle and buildSrc'));
+  assert.ok(nativeWorkflow.includes('mavenCentral()'));
+  assert.ok(nativeWorkflow.includes('google()'));
+  assert.ok(nativeWorkflow.includes("const marker = 'pluginManagement {'"));
+  assert.ok(nativeWorkflow.includes("const repoMarker = 'repositories {';"));
+  assert.ok(nativeWorkflow.includes('const remainder = source.slice(0, start) + source.slice(close + 1);'));
+  assert.ok(nativeWorkflow.includes('Gradle requires pluginManagement before all executable settings statements.'));
+  assert.ok(nativeWorkflow.includes('src-tauri/gen/android/buildSrc/settings.gradle.kts'));
+  assert.ok(nativeWorkflow.includes('Build installable Android arm64 APK'));
+  assert.ok(nativeWorkflow.includes("com.companygamerstudios.oceanhub"));
+  assert.ok(nativeWorkflow.includes("application-label:'OceanHub'"));
+  assert.ok(nativeWorkflow.includes('launchable-activity'));
+  assert.ok(nativeWorkflow.includes('application-icon-[0-9]+:'));
+  assert.ok(nativeWorkflow.includes('actions/upload-artifact@v7'));
+  assert.ok(nativeWorkflow.includes('archive: false'));
+  assert.ok(nativeWorkflow.includes('OceanHub-Android-arm64-preview.apk'));
+  assert.equal(nativeWorkflow.includes('windows-test-installers'), false);
+  assert.equal(nativeWorkflow.includes('--bundles nsis'), false);
+});
+
+test('production deployment is restricted to main even when manually dispatched', () => {
+  assert.ok(deployWorkflow.includes('branches:'));
+  assert.ok(deployWorkflow.includes('- main'));
+  assert.ok(deployWorkflow.includes('refs/heads/main'));
+  assert.ok(deployWorkflow.includes('El despliegue de producción solo se permite desde main.'));
+  assert.ok(deployWorkflow.includes('actions/checkout@v7'));
+  assert.ok(deployWorkflow.includes('actions/setup-node@v7'));
+});
 
 test('PayPal mode accepts only explicit sandbox/live values', () => {
   assert.equal(getPayPalMode({ PAYPAL_MODE: 'sandbox' }), 'sandbox');
@@ -28,7 +60,8 @@ test('production config declares required Worker secrets without requiring inact
   assert.ok(Array.isArray(production.secrets?.required));
   assert.ok(production.secrets.required.includes('STABLE_HORDE_API_KEY'));
   assert.equal(production.secrets.required.includes('BACKUP_ENCRYPTION_SECRET'), false);
-  assert.match(source, /BACKUP_DISABLED_NO_EXTERNAL_STORAGE/);
+  assert.match(source, /BACKUPS_R2_NOT_CONFIGURED/);
+  assert.match(source, /BACKUP_ENCRYPTION_SECRET/);
 });
 
 test('sensitive SSE route is covered by the admin gate', () => {
@@ -243,6 +276,14 @@ test('OceanHub Staff and OceanHub Sellers remain separate account roles', () => 
 });
 
 
+test('Friends presence fallback reads the correct heartbeat and never discloses invisible mode', () => {
+  assert.ok(source.includes("else isOnline = !!(await env.STATS.get(await communityPresenceKey(publicFriend.email)));"));
+  assert.equal(source.includes("else isOnline = !!(await env.STATS.get(await communityPresenceKey(env, publicFriend.email)));"), false);
+  assert.ok(source.includes("if (status.status === 'invisible') isOnline = false;"));
+  assert.ok(source.includes("const visibleStatus = isOnline ? status.status : 'offline';"));
+  assert.ok(source.includes("status: visibleStatus,"));
+});
+
 test('Friends now uses low-latency presence snapshots and refreshes without reloading the page', () => {
   assert.ok(source.includes("url.pathname === '/realtime/presence/batch'"));
   assert.ok(source.includes("communityRealtimeCall(env, '/realtime/presence/batch'"));
@@ -264,3 +305,144 @@ test('private chat shows each sender avatar and name, and typing state uses the 
   assert.ok(source.includes("socialShell('Chat con ' + pub.name"));
   assert.ok(source.includes("function beat(){if(document.hidden)return;fetch('/friends/presence'"));
 });
+
+test('Worker Previews bind their own Durable Object namespace without reusing production KV', () => {
+  assert.deepEqual(production.previews?.durable_objects?.bindings, [
+    { name: 'KV_LOCKER', class_name: 'KVLocker' }
+  ]);
+  const previewKv = production.previews?.kv_namespaces || [];
+  assert.equal(previewKv.some(binding => binding.binding === 'STATS'), false);
+  assert.equal(
+    previewKv.some(binding => binding.id === production.kv_namespaces[0]?.id),
+    false,
+    'A Preview must never reuse the production STATS namespace.'
+  );
+});
+
+test('CSV export quotes cells and neutralizes spreadsheet formulas', () => {
+  assert.equal(safeCsvCell('normal,comma'), '"normal,comma"');
+  assert.equal(safeCsvCell('say "hello"'), '"say ""hello"""');
+  assert.equal(safeCsvCell('=1+1'), '"\'=1+1"');
+  assert.equal(safeCsvCell('  +cmd'), '"\'  +cmd"');
+  assert.equal(safeCsvCell(null), '""');
+});
+
+function createNonceLocker() {
+  const values = new Map();
+  const storage = {
+    kv: {
+      get(key) { return values.get(key); },
+      put(key, value) { values.set(key, value); },
+      delete(key) { values.delete(key); }
+    },
+    transactionSync(callback) { return callback(); }
+  };
+  return new KVLocker({ storage });
+}
+
+test('Durable Object Nonce consumption is atomic and permits only one concurrent winner', async () => {
+  const locker = createNonceLocker();
+  const nonce = 'A'.repeat(32);
+  const ipHash = 'a'.repeat(64);
+  const issued = await locker.fetch(new Request('https://kv-lock/security/nonce/issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce, ipHash, ttl: 120 })
+  }));
+  assert.equal(issued.status, 201);
+
+  const attempts = await Promise.all(Array.from({ length: 12 }, () =>
+    locker.fetch(new Request('https://kv-lock/security/nonce/consume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nonce, ipHash })
+    }))
+  ));
+  const outcomes = await Promise.all(attempts.map(response => response.json()));
+  assert.equal(outcomes.filter(result => result.ok === true).length, 1);
+});
+
+test('Durable Object Nonce is bound to IP hash without letting a wrong IP consume it', async () => {
+  const locker = createNonceLocker();
+  const nonce = 'B'.repeat(32);
+  const ipHash = 'b'.repeat(64);
+  const issued = await locker.fetch(new Request('https://kv-lock/security/nonce/issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce, ipHash, ttl: 120 })
+  }));
+  assert.equal(issued.status, 201);
+
+  const denied = await locker.fetch(new Request('https://kv-lock/security/nonce/consume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce, ipHash: 'c'.repeat(64) })
+  }));
+  assert.deepEqual(await denied.json(), { ok: false });
+
+  const accepted = await locker.fetch(new Request('https://kv-lock/security/nonce/consume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce, ipHash })
+  }));
+  assert.deepEqual(await accepted.json(), { ok: true });
+});
+
+test('security and account-data routes keep existing client contracts while tightening mutations', () => {
+  assert.match(source, /path === '\/verify-web'/);
+  assert.match(source, /path === '\/get-nonce'/);
+  assert.match(source, /path === '\/account\/export'/);
+  assert.match(source, /path === '\/shop\/create-checkout'[\s\S]{0,250}request\.method !== 'POST'/);
+  assert.match(source, /path === '\/cancelar-renovacion'[\s\S]{0,180}request\.method !== 'POST'/);
+  assert.match(source, /Por seguridad, canjea el código mediante POST/);
+  assert.match(source, /codigo = String\(payload\?\.codigo \|\| ''\)\.trim\(\)/);
+  assert.equal(source.includes('<form method="POST" action="/claim-key">'), true);
+  assert.match(source, /paypal_event_/);
+  assert.match(source, /Content-Security-Policy-Report-Only/);
+});
+
+test('OAuth state is consumed under a distributed lock to reject parallel callbacks', () => {
+  assert.ok(source.includes('async function consumeOAuthState'));
+  assert.ok(source.includes('withKVLock(env, `oauth-state:'));
+  assert.ok(source.includes('await env.STATS.delete(storageKey)'));
+});
+
+test('account export excludes password hashes, salts, TOTP seeds and session versions', () => {
+  assert.ok(source.includes('async function handleAccountExport'));
+  assert.ok(source.includes("'passwordHash'"));
+  assert.ok(source.includes("'otp_secret'"));
+  assert.ok(source.includes("'sessionVersion'"));
+  assert.ok(source.includes("path === '/account/export'"));
+});
+
+test('backup encryption round-trips with an independent AES-256-GCM secret', async () => {
+  const env = {
+    BACKUP_ENCRYPTION_SECRET: 'backup-secret-for-tests-only-0123456789',
+    DYNAMIC_KEY_ENCRYPTION_SECRET: 'data-encryption-secret-for-tests-only-0123456789',
+    DYNAMIC_KEY_INDEX_SECRET: 'key-index-secret-for-tests-only-0123456789'
+  };
+  const payload = JSON.stringify({ format: 'OceanHubKVBackup', version: 1, entries: [{ name: 'test', value: 'value' }] });
+  const encrypted = await encryptBackupPayload(env, payload);
+  const parsed = JSON.parse(encrypted);
+  assert.equal(parsed.algorithm, 'AES-256-GCM');
+  assert.notEqual(parsed.ciphertext, payload);
+  assert.equal(await decryptBackupPayload(env, encrypted), payload);
+  await assert.rejects(
+    decryptBackupPayload({ ...env, BACKUP_ENCRYPTION_SECRET: 'another-secret-for-tests-only-987654321' }, encrypted)
+  );
+});
+
+test('backup snapshots exclude short-lived credentials and rate-limit state', () => {
+  for (const prefix of ['2fa_temp_', 'pwd_reset_', 'email_verify_', 'rl_ip_', 'rl_key_', 'rl_action_']) {
+    assert.ok(source.includes(`'${prefix}'`), `backup must exclude ${prefix}`);
+  }
+});
+
+test('backup restore remains opt-in, encrypted, R2-backed and additive only', () => {
+  assert.match(source, /BACKUPS_R2_NOT_CONFIGURED/);
+  assert.match(source, /encryptBackupPayload\(env, JSON\.stringify\(snapshot\)\)/);
+  assert.match(source, /RESTORE_OCEANHUB_ADD_ONLY/);
+  assert.match(source, /mode: 'additive'/);
+  assert.match(source, /never deletes|nunca borra/i);
+});
+

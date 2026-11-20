@@ -1,0 +1,186 @@
+name: OceanHub Android APK
+
+on:
+  push:
+    branches: ["main", "feat/oceanhub-five-phase-execution"]
+    paths:
+      - "apps/oceanhub-app/**"
+      - ".github/workflows/oceanhub-native-validation.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "apps/oceanhub-app/**"
+      - ".github/workflows/oceanhub-native-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oceanhub-android-apk-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  android-apk:
+    name: Android arm64 APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/oceanhub-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: Install Android SDK, Build Tools and NDK
+        shell: bash
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/27.0.12077973" >> "$GITHUB_ENV"
+      - name: Set up stable Rust and Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Cache Rust build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/oceanhub-app/src-tauri -> target
+      - name: Install app dependencies
+        run: npm install --no-audit --no-fund
+      - name: Initialize Tauri Android project
+        run: npm run tauri:android:init -- --ci
+      - name: Configure Maven repositories for Android Gradle and buildSrc
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile, access } from 'node:fs/promises';
+
+          const candidates = [
+            'src-tauri/gen/android/settings.gradle.kts',
+            'src-tauri/gen/android/settings.gradle',
+            'src-tauri/gen/android/buildSrc/settings.gradle.kts',
+            'src-tauri/gen/android/buildSrc/settings.gradle',
+            'src-tauri/gen/android/buildSrc/build.gradle.kts',
+            'src-tauri/gen/android/buildSrc/build.gradle'
+          ];
+          const repositories = ['google()', 'mavenCentral()', 'gradlePluginPortal()'];
+
+          function matchingBrace(source, openIndex) {
+            let depth = 0;
+            for (let i = openIndex; i < source.length; i += 1) {
+              if (source[i] === '{') depth += 1;
+              if (source[i] === '}') {
+                depth -= 1;
+                if (depth === 0) return i;
+              }
+            }
+            throw new Error('Unbalanced Gradle block.');
+          }
+
+          function ensureRepositories(blockSource, blockName) {
+            const marker = blockName + ' {';
+            const start = blockSource.indexOf(marker);
+            if (start < 0) {
+              return marker + '\n    repositories {\n' +
+                repositories.map(value => '        ' + value).join('\n') +
+                '\n    }\n}\n' + blockSource;
+            }
+            const open = start + marker.length - 1;
+            const close = matchingBrace(blockSource, open);
+            const repoMarker = 'repositories {';
+            const repoStart = blockSource.indexOf(repoMarker, open + 1);
+            if (repoStart < 0 || repoStart > close) {
+              const repoBlock = '\n    repositories {\n' +
+                repositories.map(value => '        ' + value).join('\n') +
+                '\n    }\n';
+              return blockSource.slice(0, open + 1) + repoBlock + blockSource.slice(open + 1);
+            }
+            const repoOpen = repoStart + repoMarker.length - 1;
+            const repoClose = matchingBrace(blockSource, repoOpen);
+            const repoBody = blockSource.slice(repoOpen + 1, repoClose);
+            const missing = repositories.filter(value => !repoBody.includes(value));
+            if (missing.length === 0) return blockSource;
+            return blockSource.slice(0, repoClose) +
+              '\n' + missing.map(value => '        ' + value).join('\n') + '\n' +
+              blockSource.slice(repoClose);
+          }
+
+          function configureSettings(source) {
+            const marker = 'pluginManagement {';
+            const start = source.indexOf(marker);
+            if (start < 0) {
+              return marker + '\n    repositories {\n' +
+                repositories.map(value => '        ' + value).join('\n') +
+                '\n    }\n}\n\n' + source;
+            }
+            const open = start + marker.length - 1;
+            const close = matchingBrace(source, open);
+            let block = source.slice(start, close + 1);
+            const remainder = source.slice(0, start) + source.slice(close + 1);
+            block = ensureRepositories(block, 'pluginManagement');
+            // Gradle requires pluginManagement before all executable settings statements.
+            return block + '\n\n' + remainder.replace(/^\s*\n/, '');
+          }
+
+          function configureBuildscript(source) {
+            if (!source.includes('buildscript {')) {
+              return 'buildscript {\n    repositories {\n' +
+                repositories.map(value => '        ' + value).join('\n') +
+                '\n    }\n}\n\n' + source;
+            }
+            return ensureRepositories(source, 'buildscript');
+          }
+
+          let patched = 0;
+          for (const file of candidates) {
+            try { await access(file); } catch { continue; }
+            const original = await readFile(file, 'utf8');
+            const isSettings = file.endsWith('settings.gradle') || file.endsWith('settings.gradle.kts');
+            const updated = isSettings ? configureSettings(original) : configureBuildscript(original);
+            await writeFile(file, updated);
+            console.log('Configured Maven/plugin repositories in ' + file);
+            patched += 1;
+          }
+          if (patched === 0) {
+            throw new Error('No generated Android Gradle settings/buildSrc files were found.');
+          }
+          console.log('Patched ' + patched + ' generated Gradle files.');
+          NODE
+      - name: Build installable Android arm64 APK
+        run: npm run tauri:android:build -- --debug --target aarch64 --ci
+      - name: Verify package identity, launcher icon and launch activity
+        shell: bash
+        run: |
+          APK="src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
+          test -f "$APK"
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          "$AAPT" dump badging "$APK" | tee /tmp/oceanhub-apk-badging.txt
+          grep -F "package: name='com.companygamerstudios.oceanhub'" /tmp/oceanhub-apk-badging.txt
+          grep -F "application-label:'OceanHub'" /tmp/oceanhub-apk-badging.txt
+          grep -F "application: label='OceanHub'" /tmp/oceanhub-apk-badging.txt
+          grep -Eq "^application-icon-[0-9]+:" /tmp/oceanhub-apk-badging.txt
+          grep -q '^launchable-activity:' /tmp/oceanhub-apk-badging.txt
+          mkdir -p release
+          cp "$APK" release/OceanHub-Android-arm64-preview.apk
+          test -s release/OceanHub-Android-arm64-preview.apk
+          sha256sum release/OceanHub-Android-arm64-preview.apk
+      - name: Upload the APK as a direct file (not a ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: apps/oceanhub-app/release/OceanHub-Android-arm64-preview.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 30

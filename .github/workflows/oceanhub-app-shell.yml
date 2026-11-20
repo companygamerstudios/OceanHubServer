@@ -1,0 +1,67 @@
+name: OceanHub App shell quality
+
+on:
+  push:
+    branches: ["feat/oceanhub-3-native-app-shell"]
+    paths:
+      - "apps/oceanhub-app/**"
+      - "download-center.js"
+      - "test/**"
+      - "OceanHub_SECURITY_PATCHED_FINAL_v18.js"
+      - "preflight_deploy_v18.mjs"
+      - "wrangler.local.jsonc"
+      - ".github/workflows/oceanhub-app-shell.yml"
+  pull_request:
+    branches: ["main", "feat/oceanhub-3-download-center"]
+    paths:
+      - "apps/oceanhub-app/**"
+      - "download-center.js"
+      - "test/**"
+      - "OceanHub_SECURITY_PATCHED_FINAL_v18.js"
+      - "preflight_deploy_v18.mjs"
+      - "wrangler.local.jsonc"
+      - ".github/workflows/oceanhub-app-shell.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oceanhub-app-shell-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worker-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install Worker dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check Worker syntax
+        run: npm run check:syntax
+      - name: Run Worker and NEXUS regression tests
+        run: npm test
+      - name: Validate local Wrangler config without deploying
+        run: npx wrangler deploy --dry-run --config wrangler.local.jsonc
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/oceanhub-app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/oceanhub-app/package.json
+      - name: Install isolated app dependencies
+        run: npm install --no-audit --no-fund
+      - name: Type-check and build packaged frontend
+        run: npm run build
