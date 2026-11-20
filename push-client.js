@@ -11,6 +11,9 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   var lastPongAt = 0;
   var retry = 0;
   var webPushInitialized = false;
+  var foregroundPollTimer = null;
+  var foregroundKnownIds = null;
+  var foregroundPollInFlight = false;
 
   function byId(id) { return document.getElementById(id); }
   function status(message, isError) {
@@ -148,7 +151,8 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
   async function setupAndroid() {
     if (!api) throw new Error("El puente nativo de OceanHub no está disponible.");
     var permission = await api("plugin:fcm|request_permissions");
-    if (!permission || permission.notification !== "granted") {
+    var permissionGranted = permission === "granted" || !!(permission && permission.notification === "granted");
+    if (!permissionGranted) {
       throw new Error("Android no concedió el permiso para mostrar notificaciones.");
     }
     await api("plugin:fcm|register");
@@ -156,9 +160,15 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
       args: { id: "oceanhub_messages", name: "Mensajes y actividad de OceanHub", importance: 4 }
     });
     var result = await api("plugin:fcm|get_token");
-    await registerToken("android", result && result.token);
+    if (!result || !result.token) throw new Error("Firebase no devolvió el token de este Android.");
     setLocalFlag("oh_push_android_enabled", true);
-    status("Notificaciones Android activadas en este dispositivo.");
+    startForegroundPolling();
+    try {
+      await registerToken("android", result.token);
+      status("Notificaciones Android activadas en este dispositivo.");
+    } catch (_) {
+      status("Avisos en primer plano activados. La entrega push en segundo plano espera la conexión del servidor.");
+    }
   }
 
   async function setupWeb() {
@@ -206,13 +216,18 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
     var permissionGranted = await notificationApi.isPermissionGranted();
     if (!permissionGranted) permissionGranted = (await notificationApi.requestPermission()) === "granted";
     if (!permissionGranted) throw new Error("Windows no concedió permiso para mostrar notificaciones.");
-    await registerToken("windows", getWindowsDeviceToken());
     setLocalFlag("oh_push_windows_enabled", true);
+    startForegroundPolling();
+    var serverRegistrationReady = true;
+    try { await registerToken("windows", getWindowsDeviceToken()); }
+    catch (_) { serverRegistrationReady = false; }
     if (byId("pushAutostart") && byId("pushAutostart").checked) {
       await api("plugin:autostart|enable");
     }
     connectWindows();
-    status("Notificaciones activadas. Al cerrar la ventana, OceanHub seguirá en la bandeja de Windows.");
+    status(serverRegistrationReady
+      ? "Notificaciones activadas mientras OceanHub esté en ejecución."
+      : "Avisos en primer plano activados. La conexión push del servidor aún está pendiente.");
   }
 
   async function enablePush() {
@@ -233,9 +248,11 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
         if (androidToken && androidToken.token) await post("/api/push/unregister", { platform: "android", token: androidToken.token });
         await api("plugin:fcm|delete_token");
         setLocalFlag("oh_push_android_enabled", false);
+        stopForegroundPolling();
       } else if (windowsApp) {
         await post("/api/push/unregister", { platform: "windows", token: getWindowsDeviceToken() });
         setLocalFlag("oh_push_windows_enabled", false);
+        stopForegroundPolling();
         closeWindowsSocket();
         try { await api("plugin:autostart|disable"); } catch (_) {}
         if (byId("pushAutostart")) byId("pushAutostart").checked = false;
@@ -278,6 +295,76 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
         if (result && typeof result.catch === "function") result.catch(function () {});
       } catch (_) {}
     }
+  }
+
+  function showForegroundNotification(item) {
+    var type = String(item && item.type || "info");
+    var title = String(item && item.title || "OceanHub").slice(0, 120);
+    var body = type === "dm"
+      ? "Tienes un nuevo mensaje privado. Abre OceanHub para leerlo."
+      : String(item && item.body || "Tienes una nueva notificación").slice(0, 180);
+    var notificationApi = window.__TAURI__ && window.__TAURI__.notification;
+    if (!notificationApi || typeof notificationApi.sendNotification !== "function") return;
+    try {
+      var result = notificationApi.sendNotification({
+        title: title,
+        body: body,
+        channelId: "oceanhub_messages"
+      });
+      if (result && typeof result.catch === "function") result.catch(function () {});
+    } catch (_) {}
+  }
+
+  async function pollForegroundNotifications() {
+    var enabled = (androidApp && localFlag("oh_push_android_enabled")) ||
+      (windowsApp && localFlag("oh_push_windows_enabled"));
+    if (!isTauri || !enabled || foregroundPollInFlight) return;
+    // Prefer the live Windows socket when it is healthy to avoid duplicate alerts.
+    if (windowsApp && socket && socket.readyState === WebSocket.OPEN) return;
+    foregroundPollInFlight = true;
+    try {
+      var response = await fetch("/api/notifications", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) return;
+      var result = await response.json();
+      var notifications = Array.isArray(result.notifications) ? result.notifications : [];
+      if (foregroundKnownIds === null) {
+        foregroundKnownIds = new Set(notifications.map(function (item) { return String(item && item.id || ""); }).filter(Boolean));
+        return;
+      }
+      var fresh = notifications.filter(function (item) {
+        var id = String(item && item.id || "");
+        return id && !foregroundKnownIds.has(id);
+      });
+      fresh.slice().reverse().forEach(showForegroundNotification);
+      notifications.forEach(function (item) {
+        var id = String(item && item.id || "");
+        if (id) foregroundKnownIds.add(id);
+      });
+      while (foregroundKnownIds.size > 100) {
+        foregroundKnownIds.delete(foregroundKnownIds.values().next().value);
+      }
+    } catch (_) {
+      // Foreground polling is a resilient fallback; it must not interrupt the app.
+    } finally {
+      foregroundPollInFlight = false;
+    }
+  }
+
+  function startForegroundPolling() {
+    if (foregroundPollTimer) clearInterval(foregroundPollTimer);
+    foregroundKnownIds = null;
+    pollForegroundNotifications();
+    foregroundPollTimer = setInterval(pollForegroundNotifications, 15000);
+  }
+
+  function stopForegroundPolling() {
+    if (foregroundPollTimer) clearInterval(foregroundPollTimer);
+    foregroundPollTimer = null;
+    foregroundKnownIds = null;
   }
 
   function connectWindows() {
@@ -379,6 +466,7 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
     bindLogoutCleanup();
     bindControls();
     if (androidApp && localFlag("oh_push_android_enabled")) {
+      startForegroundPolling();
       api("plugin:fcm|get_token").then(function (result) {
         if (result && result.token) return registerToken("android", result.token);
       }).catch(function () {});
@@ -387,6 +475,7 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
       setupWeb().catch(function () {});
     }
     if (windowsApp && localFlag("oh_push_windows_enabled")) {
+      startForegroundPolling();
       registerToken("windows", getWindowsDeviceToken()).then(connectWindows).catch(function () { connectWindows(); });
     }
     window.addEventListener("beforeunload", function () {
