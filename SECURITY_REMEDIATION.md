@@ -33,7 +33,7 @@ This PR is a first, bounded remediation pass. It does not claim all 100 checklis
 5. Configure Cloudflare Access/IP allowlisting for admin routes and verify OAuth login cannot bypass enforced 2FA; confirm actual cookie/session invalidation behavior.
 6. Verify production KV, rate limits, webhook signatures/idempotency, provider credentials and end-to-end flows with authorized tests.
 7. Configure Cloudflare logs/alerts, email SPF/DKIM/DMARC and inbox tests, and a separate staging Worker/KV namespace with Sandbox credentials.
-8. Create an encrypted off-site backup, then perform and record a restoration test.
+8. Before production, define an affordable off-site recovery method and test it. Cloudflare R2 is optional and is explicitly outside the four active phases; do not create a paid bucket just to test this branch.
 9. Manually test accessibility, iPhone/Android layouts, legal text and privacy/cookie handling, plus account export/deletion and purchase lifecycle.
 10. Commission an external penetration test before launch.
 
