@@ -14,7 +14,7 @@ Esta entrega consolida cuatro áreas de trabajo y conserva el Worker actual. La 
 | 1. Seguridad y estabilidad | Nonces atómicos ligados al hash de IP en Durable Object; limitación de emisión; validación de tamaño en /verify; protección Origin/Fetch Metadata para mutaciones con cookie de sesión; checkout/cancelación/canje mediante POST; CSV correctamente citado y neutralización de fórmulas; CSP Report-Only más estricta; registro idempotente de eventos PayPal. Se conserva GET /account/export sin depender de R2 | Migrar todas las páginas a CSP estricta sin unsafe-inline; auditoría OAuth/CSRF completa; revisión de logs; pentest externo; validación en producción |
 | 2. Pagos y vendedores | Ledger de event.id PayPal para duplicados; eventos de reembolso/reversión/disputa se marcan para conciliación manual; pedidos existentes conservan lock por orden | Marketplace todavía no cobra ni liquida a vendedores. Falta modelo de órdenes, payout/escrow, reembolsos automáticos, disputa y pruebas Sandbox integrales |
 | 3. Experiencia social | Corrige fallback KV de presencia y evita revelar estado invisible; conserva heartbeat, rutas y respuesta de Friends. Ya hay base de soporte/notificaciones y Security Center en Ocean Suite | Solicitudes de mensajes, preferencias finas y un inbox unificado requieren endpoints, límites y pruebas de privacidad adicionales |
-| 4. OceanHub 3.0 | Hereda /download, PWA, política de versión y shell Tauri 2 Windows/Android. CI prepara un instalador Windows NSIS .exe sin firma y un APK Android arm64 debug; actualiza setup-android v4, iconos Tauri y Maven Central/Google en buildSrc Android | Login/OAuth/2FA nativos, firma comercial, paquetes oficiales y updater firmado. MSI queda fuera de este build de prueba por la restricción de prerelease de Tauri. El shell no debe tratarse como app terminada |
+| 4. OceanHub 3.0 | PWA y dos clientes Tauri 2 que cargan la **web completa** del Worker actual desde la raíz oficial. Windows usa WebView2 y Android usa WebView; ambos conservan las rutas reales, login web, sesión, comunidad, Air Flow, Market, Creator y controles del servidor. Se eliminó la maqueta local de módulos de demostración. CI compila instalador Windows NSIS sin firma y APK Android arm64 debug | Auditoría responsive real por ruta y dispositivo; prueba de OAuth de Google/Discord en WebView y callback seguro con navegador externo si un proveedor bloquea el WebView; pruebas de uploads/cámara/micrófono/pagos; firma comercial y updater firmado. MSI queda fuera de este build de prueba por la restricción de prerelease de Tauri |
 
 ## Alcance de datos y almacenamiento
 
@@ -44,6 +44,19 @@ Esta entrega consolida cuatro áreas de trabajo y conserva el Worker actual. La 
 - Los backups R2 no son una condición para completar ni probar estas cuatro fases.
 
 **No activar el despliegue a producción desde esta rama.** La integración requiere revisión humana y prueba real de compatibilidad, especialmente por los cambios a los métodos de checkout/canje. El estado verde de pruebas automatizadas no sustituye la prueba del cliente Lua ni la validación de servicios externos.
+
+## Cliente nativo Windows y Android — web completa
+
+Los dos paquetes Tauri 2 cargan la web oficial completa desde `https://oceanhud.yoelenmanuelzorrilla.workers.dev/`; no muestran módulos locales simulados ni mantienen un backend paralelo. El Worker sigue decidiendo la autenticación, sesión, roles, rutas y datos. Sin sesión, `/` conserva el redirect web hacia `/welcome`. El WebView remoto no recibe permisos Tauri/IPC ni acceso general al dispositivo.
+
+- Windows: ventana de escritorio mediante WebView2.
+- Android: WebView móvil que debe usar el layout responsive de la propia web.
+- La sesión queda aislada dentro del perfil WebView de cada app; no se comparte automáticamente con el navegador externo.
+- La aplicación necesita conexión a Internet para usar el sitio hospedado en el Worker.
+- La compilación de la APK/EXE no demuestra por sí sola que cada ruta esté adaptada a móvil. Revisar Home, login/2FA, perfiles, Friends, notificaciones, Ocean Suite, Air Flow, Market, Creator y paneles autorizados en teléfonos reales y en escritorio.
+- Google/Discord OAuth y las APIs de dispositivos requieren pruebas reales: si el proveedor bloquea el acceso desde WebView embebido, integrar un flujo de navegador externo con callback/deep link seguro antes de anunciar soporte completo.
+
+El archivo `apps/oceanhub-app/README.md` describe arquitectura y matriz pendiente de validación. La pantalla local de fallback no es una copia offline de la web.
 
 ## Prueba del cliente OceanHub V8
 
