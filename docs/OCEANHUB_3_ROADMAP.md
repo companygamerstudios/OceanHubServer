@@ -38,13 +38,13 @@ Como consecuencia intencional, las páginas autenticadas que dependen de `STATS`
 ## OceanHub Everywhere y /download
 
 - /download es el centro oficial de instalación.
-- Primera entrega: PWA instalable desde navegadores compatibles en Windows y Android. Se instala desde el navegador; no es todavía un archivo nativo .EXE, .MSI o .APK.
+- Primera entrega: se prioriza una aplicación nativa **solo para Android**, distribuida como APK. No se desarrollará ni publicará un cliente nativo para Windows en este alcance.
 - /app.webmanifest define nombre, icono y modo de aplicación; /sw.js habilita el ciclo de vida PWA.
 - /api/app/version publica una versión semántica, canal y versión mínima soportada, sin datos de usuario.
 - El Worker añade un monitor a páginas HTML autenticadas. Cuando el servidor anuncia una versión posterior o una versión mínima mayor, presenta el aviso “Tu versión de OceanHub quedó obsoleta” con una acción de actualización.
 - Las páginas privadas no se guardan en caché offline. El Service Worker utiliza red para navegación y muestra una pantalla sin conexión; evita dejar perfiles, mensajes o contenido privado almacenado en el dispositivo compartido.
 - Para futuras versiones, incrementar APP_VERSION. Incrementar MINIMUM_SUPPORTED_VERSION solo cuando la versión anterior ya no sea compatible.
-- Las versiones nativas Windows/Android serán una fase posterior: Windows requerirá empaquetado e instalador firmado (o publicar claramente que el binario no está firmado); Android requerirá un APK firmado de forma consistente y el flujo de confirmación de instalación del sistema. No mostrar enlaces de descarga hasta que los artefactos estén generados y verificados.
+- Android: generar APK instalable, verificar nombre/icono/actividad de inicio y entregar el archivo .apk directamente (sin ZIP). Para distribución pública hará falta firma release estable y validar actualizaciones. Windows queda fuera de alcance.
 - Los paquetes nativos deben publicarse como GitHub Releases y el centro /download solo debe enlazar assets de una release oficial verificada. No colocar binarios falsos ni placeholders descargables.
 
 ## Orden de trabajo
@@ -55,10 +55,10 @@ Como consecuencia intencional, las páginas autenticadas que dependen de `STATS`
 4. Air Flow 3.0.
 5. Market y Creator Ecosystem.
 6. Command Center 2.0.
-7. QA final de seguridad, rendimiento, accesibilidad, Windows y Android.
+7. QA final de seguridad, rendimiento, accesibilidad y Android.
 
 ## Estado de esta rama
 
 - Incluido en esta primera fase: centro /download, web manifest, icono SVG, service worker de navegación en red, endpoint de versión, aviso global de versión obsoleta en páginas HTML autenticadas y pruebas unitarias del versionado/rutas.
-- Pendiente para fases siguientes: completar las seis áreas funcionales y las mejoras de Home/Social/AI/Market/Command/Creator; producir y firmar los instaladores nativos Windows y Android; configurar publicación de artefactos en Releases; pruebas end-to-end en dispositivos reales.
+- Pendiente para fases siguientes: completar las seis áreas funcionales y las mejoras de Home/Social/AI/Market/Command/Creator; firmar de forma estable el APK Android release; configurar publicación permanente; pruebas end-to-end en dispositivos reales.
 - Esta rama no actualiza main, Cloudflare ni el Worker de producción.
