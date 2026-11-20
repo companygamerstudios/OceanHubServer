@@ -11220,6 +11220,9 @@ export async function workerFetch(request, env) {
         if (path === '/api/push/socket') {
             const auth = await requireAuth(env, request);
             if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+            if (!(await checkActionRateLimit(env, 'push-socket-connect', auth.user.email, 120, 3600))) {
+                return jsonResponse({ error: 'Demasiadas reconexiones de notificaciones' }, 429);
+            }
             return await handlePushSocket(env, request, auth.user.email);
         }
         if (path.startsWith('/api/push/')) {
