@@ -25,7 +25,7 @@ function createDurableObjectNamespace() {
         instances.set(name, new KVLocker({ storage }));
       }
       const durableObject = instances.get(name);
-      return { fetch(request) { return durableObject.fetch(request); } };
+      return { fetch(input, init) { const request = input instanceof Request ? input : new Request(input, init); return durableObject.fetch(request); } };
     }
   };
 }
