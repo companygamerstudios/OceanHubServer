@@ -356,7 +356,7 @@ test('security and account-data routes keep existing client contracts while tigh
   assert.match(source, /path === '\/cancelar-renovacion'[\s\S]{0,180}request\.method !== 'POST'/);
   assert.match(source, /Por seguridad, canjea el código mediante POST/);
   assert.match(source, /codigo = String\(payload\?\.codigo \|\| ''\)\.trim\(\)/);
-  assert.match(source, /<form method="POST" action="\\/claim-key">/);
+  assert.equal(source.includes('<form method="POST" action="/claim-key">'), true);
   assert.match(source, /paypal_event_/);
   assert.match(source, /Content-Security-Policy-Report-Only/);
 });
