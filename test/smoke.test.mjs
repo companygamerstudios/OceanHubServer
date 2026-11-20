@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import worker, { getPayPalMode, safeCsvCell, KVLocker } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
+import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
 
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
@@ -373,6 +373,23 @@ test('account export excludes password hashes, salts, TOTP seeds and session ver
   assert.ok(source.includes("'otp_secret'"));
   assert.ok(source.includes("'sessionVersion'"));
   assert.ok(source.includes("path === '/account/export'"));
+});
+
+test('backup encryption round-trips with an independent AES-256-GCM secret', async () => {
+  const env = {
+    BACKUP_ENCRYPTION_SECRET: 'backup-secret-for-tests-only-0123456789',
+    DYNAMIC_KEY_ENCRYPTION_SECRET: 'data-encryption-secret-for-tests-only-0123456789',
+    DYNAMIC_KEY_INDEX_SECRET: 'key-index-secret-for-tests-only-0123456789'
+  };
+  const payload = JSON.stringify({ format: 'OceanHubKVBackup', version: 1, entries: [{ name: 'test', value: 'value' }] });
+  const encrypted = await encryptBackupPayload(env, payload);
+  const parsed = JSON.parse(encrypted);
+  assert.equal(parsed.algorithm, 'AES-256-GCM');
+  assert.notEqual(parsed.ciphertext, payload);
+  assert.equal(await decryptBackupPayload(env, encrypted), payload);
+  await assert.rejects(
+    decryptBackupPayload({ ...env, BACKUP_ENCRYPTION_SECRET: 'another-secret-for-tests-only-987654321' }, encrypted)
+  );
 });
 
 test('backup restore remains opt-in, encrypted, R2-backed and additive only', () => {
