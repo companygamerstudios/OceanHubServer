@@ -66,8 +66,8 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
     if (permission !== "granted") permission = await Notification.requestPermission();
     if (permission !== "granted") throw new Error("No se concedió el permiso de notificaciones.");
     var registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
-    var appModule = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js");
-    var messagingModule = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging.js");
+    var appModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js");
+    var messagingModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-messaging.js");
     if (!await messagingModule.isSupported()) throw new Error("Firebase Messaging no es compatible con este navegador.");
     var app = appModule.initializeApp(config.firebaseConfig, "oceanhub-web-push");
     var messaging = messagingModule.getMessaging(app);
@@ -124,8 +124,8 @@ export const PUSH_CLIENT_JS = String.raw`(function () {
         if (byId("pushAutostart")) byId("pushAutostart").checked = false;
       } else if (localFlag("oh_push_web_enabled")) {
         var config = await requestJson("/api/push/config");
-        var appModule = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js");
-        var messagingModule = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging.js");
+        var appModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js");
+        var messagingModule = await import("https://www.gstatic.com/firebasejs/13.4.0/firebase-messaging.js");
         var app = appModule.initializeApp(config.firebaseConfig, "oceanhub-web-push");
         var messaging = messagingModule.getMessaging(app);
         var token = await messagingModule.getToken(messaging, { vapidKey: config.vapidKey });
