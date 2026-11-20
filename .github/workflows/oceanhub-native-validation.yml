@@ -96,7 +96,7 @@ jobs:
       - name: Initialize Tauri Android project
         run: npm run tauri:android:init -- --ci
       - name: Build arm64 debug APK
-        run: npm run tauri:android:build -- --debug --target aarch64 --apk --ci
+        run: npm run tauri:android:build -- --debug --target aarch64 --ci
       - name: Verify APK output exists
         shell: bash
         run: |
