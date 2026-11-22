@@ -114,3 +114,17 @@ test("rechaza políticas inválidas y no persiste HTML de error como versión", 
   assert.equal(result.policy, null);
   assert.equal(storage.read(VERSION_POLICY_CACHE_KEY), null);
 });
+
+test("OceanHub 3.0.1 marca 3.0.0 como actualización obligatoria", () => {
+  assert.equal(APP_CLIENT_VERSION, "3.0.1");
+  const stablePolicy = {
+    name: "OceanHub",
+    version: "3.0.1",
+    minimumSupportedVersion: "3.0.1",
+    channel: "stable",
+    downloadUrl: "/download",
+    releaseNotes: "OceanHub 3.0.1"
+  };
+  assert.equal(getVersionDecision("3.0.0", stablePolicy), "required");
+  assert.equal(getVersionDecision("3.0.1", stablePolicy), "current");
+});
