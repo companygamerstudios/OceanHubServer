@@ -67,7 +67,7 @@ npm run tauri:android:build
 
 El workflow **OceanHub Android APK** construye la APK ARM64, verifica la firma con `apksigner` y comprueba el identificador y nombre de paquete antes de crear la publicación estable de GitHub Releases.
 
-El workflow de Windows valida el build de escritorio y entrega el instalador como artefacto de CI; no publica releases ni despliega a producción.
+El workflow de Windows valida el build y entrega el ejecutable de escritorio como artefacto directo. El instalador NSIS oficial se prepara en el workflow de distribución Windows separado; ninguno publica releases ni despliega a producción.
 
 ## Alcance de la distribución
 
