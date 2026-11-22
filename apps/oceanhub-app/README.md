@@ -1,8 +1,29 @@
-# OceanHub para Android — versión estable 3.0.0
+# OceanHub para Android y Windows — versión 3.0.0
 
-OceanHub se distribuye como una aplicación Android instalable mediante APK oficial firmada.
+OceanHub se distribuye como una aplicación Android instalable mediante APK oficial firmada y prepara un cliente de escritorio Windows con Tauri.
 
-## Datos de la aplicación
+## Iconos de la próxima versión
+
+Los iconos fuente se mantienen separados por plataforma:
+
+- Android: `assets/oceanhub-android.svg` (robot Android en el planeta OceanHub).
+- Windows/PC: `assets/oceanhub-windows.svg` (símbolo de cuatro ventanas en el planeta OceanHub).
+
+Los iconos se generan con la CLI Tauri, que crea los recursos PNG de launcher Android y el set de escritorio. No se deben sustituir manualmente los iconos generados dentro de `src-tauri/gen/android`: ese directorio es generado y se vuelve a crear en CI.
+
+### Generar iconos localmente
+
+Desde `apps/oceanhub-app`:
+
+```sh
+npm install
+npm run tauri:android:init
+npm run icons:android
+```
+
+Para un build de escritorio Windows, ejecuta `npm run icons:windows` antes de `npm run tauri:build`. Cada comando usa su arte de plataforma para generar el icono correspondiente.
+
+## Datos de la aplicación Android
 
 - Nombre: **OceanHub**
 - Versión estable: **3.0.0**
@@ -40,13 +61,16 @@ Requisitos: Node.js 22.12+, Rust estable, JDK 17, Android SDK/NDK y Tauri 2.
 ```sh
 npm install
 npm run tauri:android:init
+npm run icons:android
 npm run tauri:android:build
 ```
 
 El workflow **OceanHub Android APK** construye la APK ARM64, verifica la firma con `apksigner` y comprueba el identificador y nombre de paquete antes de crear la publicación estable de GitHub Releases.
 
+El workflow de Windows valida el build de escritorio y entrega el instalador como artefacto de CI; no publica releases ni despliega a producción.
+
 ## Alcance de la distribución
 
-Esta publicación permite descargar e instalar directamente la APK desde el sitio oficial. **No significa que la app esté publicada en Google Play**; esa distribución requiere Play Console, sus revisiones y los requisitos aplicables.
+La publicación Android permite descargar e instalar directamente la APK desde el sitio oficial. **No significa que la app esté publicada en Google Play**; esa distribución requiere Play Console, sus revisiones y los requisitos aplicables.
 
 OAuth de terceros, pagos, cámara, micrófono, cargas de archivos y otros permisos deben seguir validándose cuando cambien proveedores, Android o WebView.

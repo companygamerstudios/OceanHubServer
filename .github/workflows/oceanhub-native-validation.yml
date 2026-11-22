@@ -73,6 +73,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Initialize Tauri Android project
         run: npm run tauri:android:init -- --ci
+      - name: Generate Android launcher icon
+        run: npm run icons:android
       - name: Configure Maven repositories for Android Gradle and buildSrc
         shell: bash
         run: |
