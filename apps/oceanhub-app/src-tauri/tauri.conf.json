@@ -19,7 +19,7 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "url": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/"
+        "url": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.0"
       }
     ],
     "security": {
