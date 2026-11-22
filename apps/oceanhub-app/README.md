@@ -2,6 +2,15 @@
 
 OceanHub se distribuye como una aplicación Android instalable mediante APK oficial firmada y prepara un cliente de escritorio Windows con Tauri.
 
+## Animación de inicio
+
+- Android y Windows muestran una animación local de OceanHub mientras carga la página oficial.
+- El diseño usa el estilo de las referencias promocionales: fondo azul océano, brillo, corona y órbita animada.
+- La animación identifica automáticamente la plataforma y muestra el símbolo correspondiente (Android o Windows).
+- El efecto se inyecta desde Tauri y no descarga los videos ni depende de una conexión externa para dibujarse.
+- Cuando termina la carga inicial de la página, la pantalla se desvanece. Si la conexión tarda más de 10 segundos, muestra un aviso y un botón para reintentar.
+- El código está en `src-tauri/loading-splash.js` y se registra desde `src-tauri/src/lib.rs`.
+
 ## Iconos de la próxima versión
 
 Los iconos fuente se mantienen separados por plataforma:
