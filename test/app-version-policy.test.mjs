@@ -100,7 +100,7 @@ test("la caída de red conserva una política obligatoria previamente válida", 
   });
   assert.equal(result.connectivity, "offline");
   assert.equal(result.decision, "required");
-  assert.equal(result.policy.minimumSupportedVersion, "3.0.1");
+  assert.equal(result.policy.minimumSupportedVersion, "3.0.2");
 });
 
 test("rechaza políticas inválidas y no persiste HTML de error como versión", async () => {
