@@ -9,7 +9,7 @@ const read = relative => readFile(path.join(root, relative), "utf8");
 
 test("the Android Tauri app opens the complete official OceanHub website", async () => {
   const config = JSON.parse(await read("apps/oceanhub-app/src-tauri/tauri.conf.json"));
-  const expected = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.0";
+  const expected = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.1";
 
   assert.equal(config.productName, "OceanHub");
   assert.equal(config.identifier, "com.companygamerstudios.oceanhub");
