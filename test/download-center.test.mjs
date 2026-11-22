@@ -11,7 +11,7 @@ import {
 } from '../download-center.js';
 
 test('versiones semánticas comparan core y prerelease', () => {
-  assert.equal(compareVersions('3.0.0', '3.0.1'), -1);
+  assert.equal(compareVersions('3.0.0', '3.0.0'), 0);
   assert.equal(compareVersions('3.0.0-preview.1', '3.0.0'), -1);
   assert.equal(compareVersions('3.1.0', '3.0.9'), 1);
   assert.equal(compareVersions('bad', '3.0.0'), null);
@@ -28,7 +28,10 @@ test('el manifiesto de versión contiene únicamente metadatos públicos', () =>
 test('el centro de descargas y sus endpoints son públicos', async () => {
   const page = await handleDownloadCenterRoute(new Request('https://example.test/download'));
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /WINDOWS 10 \/ 11/);
+  const pageText = await page.text();
+  assert.match(pageText, /WINDOWS 10 \/ 11/);
+  assert.match(pageText, /Descargar instalador EXE/);
+  assert.match(pageText, /Descargar APK Android/);
   const manifest = await handleDownloadCenterRoute(new Request('https://example.test/app.webmanifest'));
   assert.equal(manifest.headers.get('Content-Type').includes('manifest+json'), true);
   const sw = await handleDownloadCenterRoute(new Request('https://example.test/sw.js'));
@@ -37,12 +40,17 @@ test('el centro de descargas y sus endpoints son públicos', async () => {
   assert.equal((await version.json()).version, APP_VERSION);
 });
 
-test('la descarga Android redirige al APK estable oficial v3.0.0', async () => {
+test('las descargas Android y Windows redirigen a los instaladores estables v3.0.0', async () => {
   const response = await handleDownloadCenterRoute(new Request('https://example.test/download/android'));
   assert.equal(response.status, 302);
   assert.equal(response.headers.get('Location'), 'https://github.com/companygamerstudios/OceanHubServer/releases/download/v3.0.0/OceanHub-Android-arm64-release.apk');
   assert.equal(APP_VERSION, '3.0.0');
   assert.equal(MINIMUM_SUPPORTED_VERSION, '3.0.0');
+  const windows = await handleDownloadCenterRoute(new Request('https://example.test/download/windows'));
+  assert.equal(windows.status, 302);
+  assert.equal(windows.headers.get('Location'), 'https://github.com/companygamerstudios/OceanHubServer/releases/download/v3.0.0/OceanHub-Setup-3.0.0-x64.exe');
+  assert.equal(getAppVersionPayload().windowsDownloadUrl, '/download/windows');
+  assert.equal(getAppVersionPayload().androidDownloadUrl, '/download/android');
   assert.equal(getAppVersionPayload().channel, 'stable');
 });
 
@@ -58,6 +66,11 @@ test('el aviso de versión solo se añade a HTML cuando está habilitado', async
   const withNotice = await injectAppUpdateNotice(html, true);
   const updatedHtml = await withNotice.text();
   assert.match(updatedHtml, /oceanhub-version-monitor/);
+  assert.match(updatedHtml, /Tu aplicación está obsoleta/);
+  assert.match(updatedHtml, /clientVersion/);
+  assert.match(updatedHtml, /oceanhubClientVersion/);
+  assert.match(updatedHtml, /window\.location\.assign\("\/download"\)/);
+  assert.match(updatedHtml, /setTimeout\(\(\)=>\{if\(document\.visibilityState==="visible"\)window\.location\.assign\("\/download"\);\},4000\)/);
 
   // Extract the generated script using literal delimiters. A regex literal here
   // previously had escaping errors and prevented the complete test file loading.
