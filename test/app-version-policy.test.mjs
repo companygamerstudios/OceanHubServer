@@ -91,7 +91,7 @@ test("una caída de red conserva la última política y no inventa una actualiza
 });
 
 test("la caída de red conserva una política obligatoria previamente válida", async () => {
-  const cachedPolicy = { ...policy, version: "3.1.0", minimumSupportedVersion: "3.0.1" };
+  const cachedPolicy = { ...policy, version: "3.1.0", minimumSupportedVersion: "3.0.2" };
   const storage = makeStorage({ policy: cachedPolicy, checkedAt: "2026-11-19T00:00:00.000Z" });
   const result = await checkVersionPolicy({
     clientVersion: APP_CLIENT_VERSION,
