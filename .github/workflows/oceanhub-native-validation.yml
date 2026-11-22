@@ -290,8 +290,22 @@ jobs:
           prerelease: false
           make_latest: true
           files: apps/oceanhub-app/release/OceanHub-Android-arm64-release.apk
-      - name: Build installable Android arm64 APK
-        run: npm run tauri:android:build -- --debug --target aarch64 --ci
+      - name: Build installable Android arm64 APK (retry transient Maven errors)
+        shell: bash
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            echo "Android APK build attempt $attempt/3"
+            npm run tauri:android:build -- --debug --target aarch64 --ci && exit 0
+            status=$?
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Build failed; retrying in ${delay}s to recover from transient dependency/network errors."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Android APK build failed after 3 attempts."
+          exit 1
       - name: Verify package identity, launcher icon and launch activity
         shell: bash
         run: |
