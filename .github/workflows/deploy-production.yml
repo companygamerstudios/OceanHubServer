@@ -10,7 +10,6 @@ on:
       - "wrangler.production_v18.jsonc"
       - "package.json"
       - "package-lock.json"
-      - ".github/workflows/deploy-production.yml"
   workflow_dispatch:
 
 permissions:
