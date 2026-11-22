@@ -11,10 +11,10 @@ import {
 } from '../download-center.js';
 
 test('versiones semánticas comparan core y prerelease', () => {
-  assert.equal(compareVersions('3.0.0', '3.0.1'), -1);
-  assert.equal(compareVersions('3.0.0-preview.1', '3.0.0'), -1);
+  assert.equal(compareVersions('3.0.1', '3.0.1'), -1);
+  assert.equal(compareVersions('3.0.1-preview.1', '3.0.1'), -1);
   assert.equal(compareVersions('3.1.0', '3.0.9'), 1);
-  assert.equal(compareVersions('bad', '3.0.0'), null);
+  assert.equal(compareVersions('bad', '3.0.1'), null);
 });
 
 test('el manifiesto de versión contiene únicamente metadatos públicos', () => {
@@ -37,12 +37,12 @@ test('el centro de descargas y sus endpoints son públicos', async () => {
   assert.equal((await version.json()).version, APP_VERSION);
 });
 
-test('la descarga Android redirige al APK estable oficial v3.0.0', async () => {
+test('la descarga Android redirige al APK estable oficial v3.0.1', async () => {
   const response = await handleDownloadCenterRoute(new Request('https://example.test/download/android'));
   assert.equal(response.status, 302);
-  assert.equal(response.headers.get('Location'), 'https://github.com/companygamerstudios/OceanHubServer/releases/download/v3.0.0/OceanHub-Android-arm64-release.apk');
-  assert.equal(APP_VERSION, '3.0.0');
-  assert.equal(MINIMUM_SUPPORTED_VERSION, '3.0.0');
+  assert.equal(response.headers.get('Location'), 'https://github.com/companygamerstudios/OceanHubServer/releases/download/v3.0.1/OceanHub-Android-arm64-release.apk');
+  assert.equal(APP_VERSION, '3.0.1');
+  assert.equal(MINIMUM_SUPPORTED_VERSION, '3.0.1');
   assert.equal(getAppVersionPayload().channel, 'stable');
 });
 
