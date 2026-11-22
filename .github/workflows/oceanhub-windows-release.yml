@@ -1,0 +1,66 @@
+name: OceanHub Windows installer
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag of the stable release to attach the Windows installer to
+        required: true
+        type: string
+        default: v3.0.1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: oceanhub-windows-release-${{ github.event.release.tag_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/oceanhub-app
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install app dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build Windows NSIS installer
+        run: npm run tauri:build -- --ci
+      - name: Verify and rename installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = Get-ChildItem 'src-tauri/target/release/bundle/nsis' -Filter '*.exe' -File
+          if ($candidates.Count -lt 1) { throw 'No NSIS installer was produced.' }
+          $installer = $candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          New-Item -ItemType Directory -Force -Path 'release' | Out-Null
+          $version = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
+          Copy-Item $installer.FullName "release/OceanHub-Setup-$version-x64.exe"
+          Get-FileHash "release/OceanHub-Setup-$version-x64.exe" -Algorithm SHA256
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: apps/oceanhub-app/release/OceanHub-Setup-*-x64.exe
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+      - name: Attach installer to stable GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" apps/oceanhub-app/release/OceanHub-Setup-*-x64.exe --clobber

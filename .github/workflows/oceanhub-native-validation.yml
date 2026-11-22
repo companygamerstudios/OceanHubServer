@@ -22,7 +22,7 @@ on:
         description: "Etiqueta de la publicación"
         required: true
         type: string
-        default: "v3.0.0"
+        default: "v3.0.1"
 
 permissions:
   contents: write
@@ -272,16 +272,31 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 30
+      - name: Resolve release tag for version bump
+        id: release-info
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          TAG="v${VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            PUBLISH=false
+          else
+            PUBLISH=true
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "publish=${PUBLISH}" >> "$GITHUB_OUTPUT"
       - name: Publish signed Android APK stable release
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && ((github.event_name == 'push' && steps.release-info.outputs.publish == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish_release == true))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag }}
-          name: OceanHub Android ${{ inputs.release_tag }}
+          tag_name: ${{ steps.release-info.outputs.tag || inputs.release_tag }}
+          name: OceanHub ${{ steps.release-info.outputs.tag || inputs.release_tag }}
           body: |
             OceanHub para Android (ARM64).
             
-            Versión estable oficial de OceanHub para Android ARM64. Instala el APK en Android 7.0 o superior.
+            Versión estable oficial: ${{ steps.release-info.outputs.tag || inputs.release_tag }}. Instala el APK en Android 7.0 o superior.
             Paquete: com.companygamerstudios.oceanhub
             
             SHA-256 del archivo: se valida en el workflow de compilación.
