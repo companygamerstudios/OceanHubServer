@@ -11,7 +11,7 @@ import {
 } from '../download-center.js';
 
 test('versiones semánticas comparan core y prerelease', () => {
-  assert.equal(compareVersions('3.0.1', '3.0.1'), -1);
+  assert.equal(compareVersions('3.0.1', '3.0.1'), 0);
   assert.equal(compareVersions('3.0.1-preview.1', '3.0.1'), -1);
   assert.equal(compareVersions('3.1.0', '3.0.9'), 1);
   assert.equal(compareVersions('bad', '3.0.1'), null);
