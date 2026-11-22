@@ -67,6 +67,8 @@ test('el aviso de versión solo se añade a HTML cuando está habilitado', async
   const updatedHtml = await withNotice.text();
   assert.match(updatedHtml, /oceanhub-version-monitor/);
   assert.match(updatedHtml, /Tu aplicación está obsoleta/);
+  assert.match(updatedHtml, /clientVersion/);
+  assert.match(updatedHtml, /oceanhubClientVersion/);
   assert.match(updatedHtml, /window\.location\.assign\("\/download"\)/);
   assert.match(updatedHtml, /setTimeout\(\(\)=>\{if\(document\.visibilityState==="visible"\)window\.location\.assign\("\/download"\);\},4000\)/);
 
