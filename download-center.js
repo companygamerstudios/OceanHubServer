@@ -148,7 +148,7 @@ export async function injectAppUpdateNotice(responseObject, enabled = true) {
   if (!/<\/body\s*>/i.test(html)) return new Response(html, { status: responseObject.status, statusText: responseObject.statusText, headers: responseObject.headers });
   const script = [
     '<script id="oceanhub-version-monitor">(()=>{',
-    'const build=' + JSON.stringify(APP_VERSION) + ';',
+    'const serverBuild=' + JSON.stringify(APP_VERSION) + ';let build=serverBuild;try{const q=new URLSearchParams(location.search).get("clientVersion");if(q&&/^(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?$/.test(q)){localStorage.setItem("oceanhubClientVersion",q);build=q;}else{const saved=localStorage.getItem("oceanhubClientVersion");if(saved&&/^(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?$/.test(saved))build=saved;}}catch(_){}',
     'const style="position:fixed;z-index:2147483000;left:16px;right:16px;top:16px;margin:auto;max-width:660px;padding:16px 18px;border-radius:18px;border:1px solid rgba(84,215,255,.35);background:rgba(5,20,35,.97);box-shadow:0 18px 70px rgba(0,0,0,.48);backdrop-filter:blur(18px);color:#eaf7ff;font:14px/1.5 system-ui,sans-serif";',
     'const button="border:0;border-radius:11px;padding:10px 14px;background:linear-gradient(100deg,#0bb8f4,#1665e8);color:white;font-weight:800;cursor:pointer";',
     'function cmp(a,b){const p=v=>{const m=String(v||"").match(/^(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?$/);return m?{n:m.slice(1,4).map(Number),p:m[4]||""}:null};const x=p(a),y=p(b);if(!x||!y)return 0;for(let i=0;i<3;i++){if(x.n[i]!==y.n[i])return x.n[i]<y.n[i]?-1:1;}if(x.p===y.p)return 0;if(!x.p)return 1;if(!y.p)return -1;return x.p<y.p?-1:1;}',
