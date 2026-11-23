@@ -33,7 +33,7 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name || inputs.release_tag }}
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.1' }}
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
@@ -66,5 +66,5 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.1' }}
         run: gh release upload "$RELEASE_TAG" apps/oceanhub-app/release/OceanHub-Setup-*-x64.exe --clobber
