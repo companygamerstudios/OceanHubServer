@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OceanHub",
-  "version": "3.0.0",
+  "version": "3.0.2",
   "identifier": "com.companygamerstudios.oceanhub",
   "build": {
-    "devUrl": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/",
+    "devUrl": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.2",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -38,7 +38,7 @@
     ],
     "android": {
       "minSdkVersion": 24,
-      "versionCode": 3000001
+      "versionCode": 3000003
     }
   }
 }
