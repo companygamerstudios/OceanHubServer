@@ -44,6 +44,7 @@ test("the Android workflow uploads a raw preview APK and Windows packaging is se
   assert.match(workflow, /archive:\s*false/);
   assert.match(workflow, /npm run icons:android/);
   assert.match(workflow, /OceanHub-Android-arm64-preview\.apk/);
+  assert.match(workflow, /if: github\.ref != 'refs\/heads\/main'/);
   assert.match(workflow, /v3\.0\.2/);
   assert.match(workflow, /Resolve release tag for version bump/);
   assert.doesNotMatch(workflow, /windows-test-installers|\.exe|\.msi/);
@@ -56,6 +57,8 @@ test("Windows validation and release workflows generate the Windows icon and ins
   assert.match(release, /npm run icons:windows/);
   assert.match(release, /OceanHub-Setup-\*-x64\.exe/);
   assert.match(release, /v3\.0\.2/);
+  assert.match(release, /Verify release tag matches app version/);
+  assert.doesNotMatch(release, /\n  push:\n/);
 });
 
 test("the startup splash is injected locally, has a minimum display time, and handles already-loaded documents", async () => {
