@@ -3,6 +3,10 @@ name: OceanHub Windows installer
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oceanhub-windows-release.yml
   workflow_dispatch:
     inputs:
       release_tag:
@@ -15,7 +19,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: oceanhub-windows-release-${{ github.event.release.tag_name || inputs.release_tag }}
+  group: oceanhub-windows-release-${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.1' }}
   cancel-in-progress: false
 
 jobs:
