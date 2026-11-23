@@ -19,7 +19,7 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "url": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/"
+        "url": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.2"
       }
     ],
     "security": {
@@ -28,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [],
+    "targets": ["nsis"],
     "category": "SocialNetworking",
     "shortDescription": "La aplicación independiente de OceanHub",
     "longDescription": "OceanHub es el espacio gamer y social de COMPANY GAMER STUDIOS.",
