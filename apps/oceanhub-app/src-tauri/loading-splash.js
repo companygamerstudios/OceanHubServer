@@ -4,9 +4,10 @@
   const OCEANHUB_HOST = "oceanhud.yoelenmanuelzorrilla.workers.dev";
   if (window.location.hostname !== OCEANHUB_HOST) return;
   if (window.__oceanhubStartupSplashInstalled) return;
-  if (document.readyState === "complete") return;
-
   window.__oceanhubStartupSplashInstalled = true;
+
+  const splashStartedAt = Date.now();
+  const MIN_SPLASH_MS = 1200;
 
   const isAndroid = /Android/i.test(navigator.userAgent || "");
   const platformName = isAndroid ? "ANDROID APP" : "WINDOWS DESKTOP";
@@ -36,11 +37,18 @@
   let shadow = null;
   let observer = null;
   let slowTimer = null;
+  let dismissTimer = null;
   let dismissed = false;
 
   const dismiss = () => {
     if (dismissed) return;
+    const remaining = MIN_SPLASH_MS - (Date.now() - splashStartedAt);
+    if (remaining > 0) {
+      if (dismissTimer === null) dismissTimer = window.setTimeout(dismiss, remaining);
+      return;
+    }
     dismissed = true;
+    if (dismissTimer !== null) window.clearTimeout(dismissTimer);
     if (slowTimer !== null) window.clearTimeout(slowTimer);
     if (observer) observer.disconnect();
     if (!host || !host.isConnected) return;
@@ -347,7 +355,11 @@
   observer.observe(document, { childList: true, subtree: true });
   mount();
 
-  window.addEventListener("load", () => window.setTimeout(dismiss, 280), { once: true });
+  if (document.readyState === "complete") {
+    window.setTimeout(dismiss, 0);
+  } else {
+    window.addEventListener("load", () => window.setTimeout(dismiss, 280), { once: true });
+  }
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) dismiss();
   }, { once: true });
