@@ -1,4 +1,4 @@
-# OceanHub para Android y Windows — versión 3.0.0
+# OceanHub para Android y Windows — versión 3.0.2
 
 OceanHub se distribuye como una aplicación Android instalable mediante APK oficial firmada y prepara un cliente de escritorio Windows con Tauri.
 
@@ -35,11 +35,11 @@ Para un build de escritorio Windows, ejecuta `npm run icons:windows` antes de `n
 ## Datos de la aplicación Android
 
 - Nombre: **OceanHub**
-- Versión estable: **3.0.0**
+- Versión prevista: **3.0.2**
 - Identificador Android: `com.companygamerstudios.oceanhub`
 - Arquitectura: **ARM64 (arm64-v8a)**
 - Android mínimo: **Android 7.0 (API 24)**
-- versionCode: `3000001`
+- versionCode: `3000003`
 
 La aplicación abre el servicio oficial de OceanHub dentro de un WebView Android:
 
