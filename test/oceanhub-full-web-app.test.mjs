@@ -7,9 +7,9 @@ import path from "node:path";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = relative => readFile(path.join(root, relative), "utf8");
 
-test("the Android Tauri app opens the complete official OceanHub website", async () => {
+test("the OceanHub Tauri client points to the full official website with the candidate version", async () => {
   const config = JSON.parse(await read("apps/oceanhub-app/src-tauri/tauri.conf.json"));
-  const expected = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/";
+  const expected = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.2";
 
   assert.equal(config.productName, "OceanHub");
   assert.equal(config.identifier, "com.companygamerstudios.oceanhub");
@@ -18,9 +18,9 @@ test("the Android Tauri app opens the complete official OceanHub website", async
   assert.equal(config.app.windows[0].url, expected);
   assert.equal(new URL(config.app.windows[0].url).protocol, "https:");
   assert.ok(config.bundle.icon.includes("icons/icon.png"));
-  assert.deepEqual(config.bundle.targets, []);
+  assert.deepEqual(config.bundle.targets, ["nsis"]);
   assert.equal(config.bundle.android.minSdkVersion, 24);
-  assert.equal(config.bundle.android.versionCode, 3000001);
+  assert.equal(config.bundle.android.versionCode, 3000003);\n  assert.equal(config.version, "3.0.2");
 });
 
 test("the Android build validates the installed app identity and launcher entry", async () => {
@@ -34,7 +34,7 @@ test("the Android build validates the installed app identity and launcher entry"
   assert.ok(workflow.includes('application-icon-[0-9]+:'), 'workflow must verify an APK launcher icon');
 });
 
-test("the native workflow uploads one raw APK and contains no Windows installer job", async () => {
+test("the Android workflow uploads a raw preview APK and Windows packaging is separate", async () => {
   const workflow = await read(".github/workflows/oceanhub-native-validation.yml");
 
   assert.match(workflow, /actions\/upload-artifact@v7/);
@@ -43,7 +43,7 @@ test("the native workflow uploads one raw APK and contains no Windows installer 
   assert.doesNotMatch(workflow, /windows-test-installers|\.exe|\.msi/);
 });
 
-test("remote OceanHub web content receives no Tauri IPC capability", async () => {
+test("the startup splash is injected locally, has a minimum display time, and handles already-loaded documents", async () => {\n  const splash = await read("apps/oceanhub-app/src-tauri/loading-splash.js");\n  assert.match(splash, /MIN_SPLASH_MS = 1200/);\n  assert.match(splash, /document\\.readyState === "complete"/);\n  assert.match(splash, /oceanhub-startup-splash/);\n});\n\ntest("remote OceanHub web content receives no Tauri IPC capability", async () => {
   const capability = JSON.parse(await read("apps/oceanhub-app/src-tauri/capabilities/default.json"));
 
   assert.deepEqual(capability.permissions, ["core:default"]);
