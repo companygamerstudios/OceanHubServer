@@ -22,7 +22,7 @@ on:
         description: "Etiqueta de la publicación"
         required: true
         type: string
-        default: "v3.0.0"
+        default: "v3.0.2"
 
 permissions:
   contents: write
