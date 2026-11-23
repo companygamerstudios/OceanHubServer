@@ -22,6 +22,8 @@ test("the OceanHub Tauri client points to the full official website with the can
   assert.equal(config.bundle.android.minSdkVersion, 24);
   assert.equal(config.bundle.android.versionCode, 3000003);
   assert.equal(config.version, "3.0.2");
+  const versionPolicy = await read("apps/oceanhub-app/src/version-policy.js");
+  assert.match(versionPolicy, /APP_CLIENT_VERSION = "3.0.2"/);
 });
 
 test("the Android build validates the installed app identity and launcher entry", async () => {
@@ -40,6 +42,7 @@ test("the Android workflow uploads a raw preview APK and Windows packaging is se
 
   assert.match(workflow, /actions\/upload-artifact@v7/);
   assert.match(workflow, /archive:\s*false/);
+  assert.match(workflow, /npm run icons:android/);
   assert.match(workflow, /OceanHub-Android-arm64-preview\.apk/);
   assert.match(workflow, /v3\.0\.2/);
   assert.match(workflow, /Resolve release tag for version bump/);
