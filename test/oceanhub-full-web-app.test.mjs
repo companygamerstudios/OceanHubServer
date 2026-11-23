@@ -20,7 +20,8 @@ test("the OceanHub Tauri client points to the full official website with the can
   assert.ok(config.bundle.icon.includes("icons/icon.png"));
   assert.deepEqual(config.bundle.targets, ["nsis"]);
   assert.equal(config.bundle.android.minSdkVersion, 24);
-  assert.equal(config.bundle.android.versionCode, 3000003);\n  assert.equal(config.version, "3.0.2");
+  assert.equal(config.bundle.android.versionCode, 3000003);
+  assert.equal(config.version, "3.0.2");
 });
 
 test("the Android build validates the installed app identity and launcher entry", async () => {
@@ -40,10 +41,28 @@ test("the Android workflow uploads a raw preview APK and Windows packaging is se
   assert.match(workflow, /actions\/upload-artifact@v7/);
   assert.match(workflow, /archive:\s*false/);
   assert.match(workflow, /OceanHub-Android-arm64-preview\.apk/);
+  assert.match(workflow, /v3\.0\.2/);
+  assert.match(workflow, /Resolve release tag for version bump/);
   assert.doesNotMatch(workflow, /windows-test-installers|\.exe|\.msi/);
 });
 
-test("the startup splash is injected locally, has a minimum display time, and handles already-loaded documents", async () => {\n  const splash = await read("apps/oceanhub-app/src-tauri/loading-splash.js");\n  assert.match(splash, /MIN_SPLASH_MS = 1200/);\n  assert.match(splash, /document\\.readyState === "complete"/);\n  assert.match(splash, /oceanhub-startup-splash/);\n});\n\ntest("remote OceanHub web content receives no Tauri IPC capability", async () => {
+test("Windows validation and release workflows generate the Windows icon and installer", async () => {
+  const validation = await read(".github/workflows/oceanhub-windows-validation.yml");
+  const release = await read(".github/workflows/oceanhub-windows-release.yml");
+  assert.match(validation, /npm run icons:windows/);
+  assert.match(release, /npm run icons:windows/);
+  assert.match(release, /OceanHub-Setup-\*-x64\.exe/);
+  assert.match(release, /v3\.0\.2/);
+});
+
+test("the startup splash is injected locally, has a minimum display time, and handles already-loaded documents", async () => {
+  const splash = await read("apps/oceanhub-app/src-tauri/loading-splash.js");
+  assert.match(splash, /MIN_SPLASH_MS = 1200/);
+  assert.match(splash, /document\.readyState === "complete"/);
+  assert.match(splash, /oceanhub-startup-splash/);
+});
+
+test("remote OceanHub web content receives no Tauri IPC capability", async () => {
   const capability = JSON.parse(await read("apps/oceanhub-app/src-tauri/capabilities/default.json"));
 
   assert.deepEqual(capability.permissions, ["core:default"]);
