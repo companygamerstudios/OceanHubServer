@@ -63,8 +63,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Attach installer to stable GitHub release
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.1' }}
-        run: gh release upload "$RELEASE_TAG" apps/oceanhub-app/release/OceanHub-Setup-*-x64.exe --clobber
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-ChildItem 'release' -Filter 'OceanHub-Setup-*-x64.exe' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw 'Installer file not found in release directory.' }
+          gh release upload $env:RELEASE_TAG $installer.FullName --clobber
