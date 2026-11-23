@@ -1,6 +1,6 @@
 # OceanHub para Android y Windows — versión 3.0.2
 
-OceanHub se distribuye como una aplicación Android instalable mediante APK oficial firmada y prepara un cliente de escritorio Windows con Tauri.
+OceanHub 3.0.2 prepara la actualización de Android (APK ARM64) y Windows (cliente Tauri). Esta versión aún debe pasar CI y revisión antes de publicarse.
 
 ## Animación de inicio
 
@@ -35,7 +35,7 @@ Para un build de escritorio Windows, ejecuta `npm run icons:windows` antes de `n
 ## Datos de la aplicación Android
 
 - Nombre: **OceanHub**
-- Versión prevista: **3.0.2**
+- Versión candidata: **3.0.2** (no publicada aún)
 - Identificador Android: `com.companygamerstudios.oceanhub`
 - Arquitectura: **ARM64 (arm64-v8a)**
 - Android mínimo: **Android 7.0 (API 24)**
@@ -76,7 +76,7 @@ npm run tauri:android:build
 
 El workflow **OceanHub Android APK** construye la APK ARM64, verifica la firma con `apksigner` y comprueba el identificador y nombre de paquete antes de crear la publicación estable de GitHub Releases.
 
-El workflow de Windows valida el build y entrega el ejecutable de escritorio como artefacto directo. El instalador NSIS oficial se prepara en el workflow de distribución Windows separado; ninguno publica releases ni despliega a producción.
+El workflow de Windows valida el build y entrega el ejecutable de escritorio como artefacto directo. El instalador NSIS oficial se prepara en un workflow de distribución separado. Estos workflows de validación no publican releases ni despliegan a producción.
 
 ## Alcance de la distribución
 
