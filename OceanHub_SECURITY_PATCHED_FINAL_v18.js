@@ -8667,6 +8667,37 @@ async function handleToggleDarkMode(env, request) {
 // ==================================================
 // [ PÁGINA DE BIENVENIDA / GATE - COMPLETA ]
 // ==================================================
+async function handleAppLaunch(env, request) {
+    const auth = await requireAuth(env, request);
+    const destination = auth ? '/home' : '/welcome';
+    const html = `<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#0a1a2b"><title>OceanHub</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}
+body{display:grid;place-items:center;background:linear-gradient(145deg,#071321,#12385a 55%,#061526);color:#e0f0ff;font-family:Segoe UI,system-ui,sans-serif}
+.launch{position:relative;isolation:isolate;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;width:100%;height:100%;text-align:center}
+.launch:before,.launch:after{content:"";position:absolute;z-index:-1;width:180vw;height:180vw;border-radius:44%;background:radial-gradient(circle,rgba(0,200,255,.13),transparent 58%);animation:rotate 18s linear infinite}
+.launch:after{background:radial-gradient(circle,rgba(30,110,255,.12),transparent 58%);animation-duration:28s;animation-direction:reverse}
+@keyframes rotate{to{transform:rotate(360deg)}}
+.logo{width:104px;height:104px;object-fit:contain;filter:drop-shadow(0 0 24px #00bfff88);animation:float 2.4s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-6px) scale(1.03)}}
+.ring{width:116px;height:116px;position:absolute;border:3px solid #00c8ff22;border-top-color:#00ccff;border-radius:50%;animation:spin 1s linear infinite;box-shadow:0 0 26px #00ccff44}
+@keyframes spin{to{transform:rotate(360deg)}}
+h1{margin:0;font-size:clamp(26px,8vw,38px);letter-spacing:.06em;text-shadow:0 0 22px #00ccff88;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.68}}
+p{margin:0;color:#9bc9e8;font-size:14px;letter-spacing:.04em}
+.dots:after{content:"";animation:dots 1.5s steps(4,end) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+.fade{animation:fade .65s ease forwards}
+@keyframes fade{to{opacity:0;transform:scale(1.025)}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important}}
+</style></head>
+<body><main class="launch" id="launch"><div class="ring" aria-hidden="true"></div><img class="logo" src="/ocean-icon.svg" alt="OceanHub"><h1>OceanHub</h1><p class="dots">Preparando tu océano</p></main>
+<script>(function(){setTimeout(function(){document.getElementById('launch').classList.add('fade');setTimeout(function(){location.replace('${destination}')},650)},1900)})();</script>
+<noscript><a href="${destination}">Continuar a OceanHub</a></noscript></body></html>`;
+    return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
 async function handleWelcome(env, request) {
     const auth = await requireAuth(env, request);
     if (auth) {
@@ -9157,6 +9188,7 @@ function isPublicRoute(path) {
         '/app.webmanifest',
         '/sw.js',
         '/ocean-icon.svg',
+        '/app-launch',
         '/welcome',
         '/login',
         '/register',
@@ -11149,6 +11181,9 @@ export async function workerFetch(request, env) {
             });
             if (oceanSuiteResponse) return oceanSuiteResponse;
         }
+
+        // --- Shared splash screen for native desktop and Android apps ---
+        if (path === '/app-launch') return await handleAppLaunch(env, request);
 
         // --- Página de bienvenida (gate) ---
         if (path === '/welcome') return await handleWelcome(env, request);
