@@ -2,7 +2,7 @@ name: OceanHub Android APK
 
 on:
   push:
-    branches: ["main", "feat/oceanhub-five-phase-execution"]
+    branches: ["main", "feat/oceanhub-five-phase-execution", "feat/oceanhub-app-icons-next-release"]
     paths:
       - "apps/oceanhub-app/**"
       - ".github/workflows/oceanhub-native-validation.yml"
