@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "wrangler dev --config wrangler.local.jsonc --port 8787",
-    "check:syntax": "node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js && node --check preflight_deploy_v18.mjs",
+    "check:syntax": "node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js && node --check push-notifications.js && node --check push-client.js && node --check preflight_deploy_v18.mjs",
     "test": "node --test",
     "deploy:production": "node preflight_deploy_v18.mjs production && wrangler deploy --config wrangler.production_v18.jsonc"
   }
