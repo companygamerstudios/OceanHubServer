@@ -11826,6 +11826,307 @@ body.light :where(input,select,textarea):focus-visible{outline:2px solid #087f9e
  :where(input,select,textarea):focus-visible{outline:2px solid Highlight!important}
 }
 
+
+/* OCEAN GLASS iOS — HIGH-REFRACTION MATERIAL PASS */
+:root{
+ --oh-ios-glass-surface:rgba(11,47,68,.42);
+ --oh-ios-glass-surface-raised:rgba(28,82,105,.48);
+ --oh-ios-glass-rim:rgba(211,250,255,.32);
+ --oh-ios-glass-specular:rgba(255,255,255,.30);
+ --oh-ios-glass-depth:0 26px 76px rgba(0,7,22,.34),0 4px 18px rgba(0,10,28,.16),inset 0 1px 0 rgba(255,255,255,.25),inset 0 -1px 0 rgba(91,215,241,.10);
+ --oh-ios-glass-pill:999px
+}
+body{
+ background-image:
+  radial-gradient(ellipse at 12% 0%,rgba(94,245,229,.25),transparent 30%),
+  radial-gradient(ellipse at 88% 9%,rgba(85,150,255,.24),transparent 31%),
+  radial-gradient(ellipse at 55% 95%,rgba(25,177,204,.20),transparent 40%),
+  linear-gradient(145deg,#020f1c 0%,#06304a 48%,#061626 100%)!important
+}
+body::before{
+ opacity:1!important;
+ filter:blur(46px) saturate(150%)!important;
+ animation-duration:36s!important
+}
+
+/* A clearer, lighter glass material with a bright upper rim and a deep lower edge. */
+:where(
+ .card,.panel,.tile,.srv,.modal,.modal-content,.modal-box,.auth-card,.terms-box,
+ .form-card,.content-card,.stat-card,.dashboard-card,.key-card,.chat-panel,
+ .settings-card,.profile-card,.notification-card,.box,.glass,.glass-card,
+ .section-card,.service-card,.product-card,.payment-card,.section,.drawer,
+ .composer,.empty-card,.result,.dropdown-menu,.popover,.toast,.toast-container,
+ .notification,.notification-item,.notification-toast,.alert-card,.context-menu,
+ .command-menu,.sheet,.bottom-sheet,[role=dialog],[data-glass="panel"],
+ .af-shell,.af-panel,.af-card,.af-composer,.af-chat,.af-mode,.af-toolbar
+){
+ border:1px solid var(--oh-ios-glass-rim)!important;
+ background:
+  radial-gradient(ellipse at 12% 0%,rgba(223,255,255,.19),transparent 48%),
+  linear-gradient(138deg,rgba(174,238,250,.105),transparent 38%),
+  linear-gradient(145deg,rgba(16,67,91,.48),rgba(3,24,43,.56))!important;
+ box-shadow:var(--oh-ios-glass-depth)!important;
+ backdrop-filter:blur(34px) saturate(190%) contrast(108%)!important;
+ -webkit-backdrop-filter:blur(34px) saturate(190%) contrast(108%)!important
+}
+:where(.card,.panel,.tile,.content-card,.stat-card,.dashboard-card,.profile-card,.product-card,.glass-card,.notification-card,.toast){
+ outline:1px solid rgba(219,252,255,.035);
+ outline-offset:-3px
+}
+:where(.card,.panel,.tile,.content-card,.stat-card,.dashboard-card,.profile-card,.product-card,.glass-card,.notification-card,.toast):hover{
+ border-color:rgba(174,250,250,.54)!important;
+ box-shadow:0 30px 88px rgba(0,7,22,.40),0 0 42px rgba(68,215,225,.14),inset 0 1px 0 rgba(255,255,255,.33),inset 0 -1px 0 rgba(100,225,245,.15)!important
+}
+
+/* Capsule controls and floating tool groups. */
+:where(.top-actions,.toolbar,.action-bar,[data-glass="toolbar"]){
+ padding:5px!important;
+ border:1px solid rgba(216,250,255,.26)!important;
+ border-radius:var(--oh-ios-glass-pill)!important;
+ background:linear-gradient(145deg,rgba(222,252,255,.13),rgba(123,204,231,.045))!important;
+ box-shadow:0 12px 34px rgba(0,8,22,.20),inset 0 1px 0 rgba(255,255,255,.24)!important;
+ backdrop-filter:blur(28px) saturate(185%)!important;
+ -webkit-backdrop-filter:blur(28px) saturate(185%)!important
+}
+:where(.top-icon,.attach-btn,.close,.action){
+ border:1px solid rgba(212,248,255,.23)!important;
+ background:linear-gradient(145deg,rgba(228,252,255,.17),rgba(113,194,225,.055))!important;
+ color:#e2faff!important;
+ box-shadow:0 5px 16px rgba(0,8,22,.16),inset 0 1px 0 rgba(255,255,255,.24)!important;
+ backdrop-filter:blur(18px) saturate(180%)!important;
+ -webkit-backdrop-filter:blur(18px) saturate(180%)!important
+}
+:where(.top-icon,.attach-btn,.close,.action):hover{
+ border-color:rgba(190,251,255,.55)!important;
+ background:rgba(155,235,247,.20)!important;
+ box-shadow:0 8px 22px rgba(0,8,22,.18),inset 0 1px 0 rgba(255,255,255,.34)!important
+}
+:where(.chip,.mode-select,.source,.pill,.badge,.tag){
+ border:1px solid rgba(198,244,252,.27)!important;
+ border-radius:var(--oh-ios-glass-pill)!important;
+ background:linear-gradient(145deg,rgba(213,250,255,.15),rgba(112,188,223,.055))!important;
+ color:#d9f7ff!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.19),0 5px 16px rgba(0,8,24,.10)!important;
+ backdrop-filter:blur(18px) saturate(185%)!important;
+ -webkit-backdrop-filter:blur(18px) saturate(185%)!important
+}
+:where(.chip,.mode-select,.source):hover,
+:where(.chip,.mode-select).active{
+ border-color:rgba(171,250,247,.62)!important;
+ background:linear-gradient(130deg,rgba(100,232,226,.24),rgba(104,155,255,.18))!important;
+ color:#f3ffff!important;
+ box-shadow:0 8px 24px rgba(38,191,206,.16),inset 0 1px 0 rgba(255,255,255,.30)!important
+}
+
+/* Air Flow gets a deliberately layered, floating app-shell treatment. */
+.app{
+ gap:12px!important;
+ padding:12px!important;
+ background:
+  radial-gradient(ellipse at 50% 0%,rgba(119,238,237,.07),transparent 45%),
+  transparent!important
+}
+.app>.sidebar{
+ border:1px solid rgba(200,246,255,.25)!important;
+ border-right:1px solid rgba(200,246,255,.25)!important;
+ border-radius:28px!important;
+ background:
+  linear-gradient(145deg,rgba(180,238,249,.09),transparent 38%),
+  linear-gradient(180deg,rgba(10,48,68,.54),rgba(2,19,36,.68))!important;
+ box-shadow:0 24px 70px rgba(0,6,20,.34),inset 0 1px 0 rgba(255,255,255,.22),inset -1px 0 0 rgba(172,240,249,.10)!important;
+ backdrop-filter:blur(38px) saturate(190%)!important;
+ -webkit-backdrop-filter:blur(38px) saturate(190%)!important;
+ overflow:hidden
+}
+.app>.main{min-width:0}
+.app .brand-mark{
+ border:1px solid rgba(220,255,255,.48)!important;
+ background:linear-gradient(145deg,rgba(232,255,255,.44),rgba(77,195,233,.18)),linear-gradient(145deg,#13abc0,#2869c6)!important;
+ box-shadow:0 12px 30px rgba(44,184,212,.28),inset 0 1px 0 rgba(255,255,255,.62)!important
+}
+.app .new-btn{
+ border:1px solid rgba(214,250,255,.36)!important;
+ border-radius:18px!important;
+ background:linear-gradient(145deg,rgba(221,252,255,.22),rgba(95,182,220,.08))!important;
+ box-shadow:0 10px 28px rgba(0,8,22,.20),inset 0 1px 0 rgba(255,255,255,.25)!important;
+ backdrop-filter:blur(24px) saturate(180%)!important;
+ -webkit-backdrop-filter:blur(24px) saturate(180%)!important
+}
+.app .nav button,.app .nav a{
+ border:1px solid transparent!important;
+ border-radius:15px!important;
+ background:transparent!important;
+ box-shadow:none!important
+}
+.app .nav button:hover,.app .nav a:hover{
+ border-color:rgba(189,246,255,.24)!important;
+ background:rgba(191,245,250,.10)!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.11)!important
+}
+.app .nav button.active{
+ border-color:rgba(181,250,248,.34)!important;
+ background:linear-gradient(110deg,rgba(100,232,226,.22),rgba(104,155,255,.17))!important;
+ box-shadow:0 8px 24px rgba(0,8,22,.16),inset 0 1px 0 rgba(255,255,255,.22)!important
+}
+.app .topbar{
+ height:64px!important;
+ margin:3px 3px 0!important;
+ padding:9px 14px!important;
+ border:1px solid rgba(204,248,255,.26)!important;
+ border-radius:24px!important;
+ background:linear-gradient(145deg,rgba(195,242,250,.14),rgba(88,165,205,.055))!important;
+ box-shadow:0 18px 48px rgba(0,7,22,.22),inset 0 1px 0 rgba(255,255,255,.26)!important;
+ backdrop-filter:blur(34px) saturate(190%)!important;
+ -webkit-backdrop-filter:blur(34px) saturate(190%)!important
+}
+.app .model-picker,.app .top-search input,.app .mini-user{
+ border:1px solid rgba(205,247,255,.26)!important;
+ border-radius:17px!important;
+ background:linear-gradient(145deg,rgba(222,251,255,.13),rgba(92,176,212,.045))!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 6px 22px rgba(0,7,22,.10)!important;
+ backdrop-filter:blur(22px) saturate(180%)!important;
+ -webkit-backdrop-filter:blur(22px) saturate(180%)!important
+}
+.app .welcome{position:relative}
+.app .welcome .eyebrow{
+ display:inline-flex;
+ align-items:center;
+ min-height:27px;
+ padding:5px 11px;
+ border:1px solid rgba(183,245,250,.27);
+ border-radius:999px;
+ background:linear-gradient(145deg,rgba(214,250,255,.15),rgba(94,178,218,.045));
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.19);
+ backdrop-filter:blur(18px);
+ -webkit-backdrop-filter:blur(18px)
+}
+.app .welcome h1{
+ text-shadow:0 0 38px rgba(85,230,232,.20),0 12px 45px rgba(0,8,24,.20)!important
+}
+.app .empty-card{
+ border:1px solid rgba(212,249,255,.34)!important;
+ border-radius:30px!important;
+ background:
+  radial-gradient(ellipse at 18% 0%,rgba(220,255,255,.18),transparent 48%),
+  linear-gradient(145deg,rgba(181,239,250,.13),rgba(83,159,197,.045)),
+  rgba(5,34,54,.36)!important;
+ box-shadow:0 28px 80px rgba(0,7,22,.28),inset 0 1px 0 rgba(255,255,255,.30),inset 0 -1px 0 rgba(94,208,232,.12)!important;
+ backdrop-filter:blur(36px) saturate(195%)!important;
+ -webkit-backdrop-filter:blur(36px) saturate(195%)!important
+}
+.app .empty-orb{
+ border:1px solid rgba(230,255,255,.55)!important;
+ background:radial-gradient(circle at 30% 22%,#eaffff 0%,#7de8ec 16%,#278fce 46%,#163a83 76%,#08213d 100%)!important;
+ box-shadow:0 0 0 7px rgba(156,237,244,.045),0 0 42px rgba(58,208,227,.42),inset 0 2px 10px rgba(255,255,255,.62),inset 0 -8px 18px rgba(0,17,55,.34)!important
+}
+.app .suggestion{
+ border:1px solid rgba(199,245,253,.25)!important;
+ border-radius:18px!important;
+ background:linear-gradient(145deg,rgba(211,248,255,.14),rgba(95,178,218,.045))!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.20),0 8px 24px rgba(0,8,22,.12)!important;
+ backdrop-filter:blur(20px) saturate(175%)!important;
+ -webkit-backdrop-filter:blur(20px) saturate(175%)!important
+}
+.app .suggestion:hover{
+ border-color:rgba(170,249,248,.55)!important;
+ background:linear-gradient(145deg,rgba(177,244,248,.22),rgba(112,164,240,.12))!important;
+ transform:translateY(-2px)
+}
+.app .bubble{
+ border:1px solid rgba(204,247,255,.28)!important;
+ border-radius:22px!important;
+ background:linear-gradient(145deg,rgba(204,246,255,.13),rgba(90,166,206,.045))!important;
+ box-shadow:0 12px 34px rgba(0,7,22,.17),inset 0 1px 0 rgba(255,255,255,.22)!important;
+ backdrop-filter:blur(26px) saturate(180%)!important;
+ -webkit-backdrop-filter:blur(26px) saturate(180%)!important
+}
+.app .message.user .bubble{
+ border-color:rgba(174,236,255,.34)!important;
+ background:linear-gradient(145deg,rgba(99,197,243,.36),rgba(73,119,213,.20))!important;
+ box-shadow:0 14px 38px rgba(10,73,151,.22),inset 0 1px 0 rgba(255,255,255,.28)!important
+}
+.app .composer{
+ border:1px solid rgba(215,250,255,.38)!important;
+ border-radius:27px!important;
+ background:
+  radial-gradient(ellipse at 12% 0%,rgba(222,255,255,.17),transparent 50%),
+  linear-gradient(145deg,rgba(181,239,250,.15),rgba(66,142,187,.055)),
+  rgba(3,28,47,.38)!important;
+ box-shadow:0 28px 78px rgba(0,7,22,.34),inset 0 1px 0 rgba(255,255,255,.34),inset 0 -1px 0 rgba(98,214,237,.16)!important;
+ backdrop-filter:blur(38px) saturate(195%)!important;
+ -webkit-backdrop-filter:blur(38px) saturate(195%)!important
+}
+.app .composer .send-btn{
+ width:43px!important;height:43px!important;
+ border:1px solid rgba(228,255,255,.62)!important;
+ border-radius:16px!important;
+ background:linear-gradient(145deg,rgba(224,255,255,.60),rgba(105,210,239,.26)),linear-gradient(135deg,#22aeca,#326fd4)!important;
+ color:#f3ffff!important;
+ box-shadow:0 10px 28px rgba(32,161,204,.30),inset 0 1px 0 rgba(255,255,255,.70)!important
+}
+.app .composer .mode-select{
+ border:1px solid transparent!important;
+ border-radius:999px!important;
+ background:transparent!important;
+ box-shadow:none!important
+}
+.app .composer .mode-select.active{
+ border-color:rgba(194,249,251,.36)!important;
+ background:linear-gradient(145deg,rgba(201,249,251,.20),rgba(104,169,235,.12))!important;
+ color:#edffff!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.23),0 5px 18px rgba(0,8,24,.11)!important
+}
+.app .overlay{backdrop-filter:blur(18px) saturate(130%)!important;-webkit-backdrop-filter:blur(18px) saturate(130%)!important}
+.app .drawer{
+ border-left:1px solid rgba(205,248,255,.30)!important;
+ background:linear-gradient(145deg,rgba(20,71,93,.82),rgba(3,25,44,.90))!important;
+ box-shadow:-30px 0 90px rgba(0,6,22,.40),inset 1px 0 0 rgba(255,255,255,.14)!important;
+ backdrop-filter:blur(40px) saturate(190%)!important;
+ -webkit-backdrop-filter:blur(40px) saturate(190%)!important
+}
+
+/* Readable daylight material when the app toggles its light appearance. */
+body.light .app>.sidebar{
+ background:linear-gradient(145deg,rgba(255,255,255,.68),rgba(221,246,255,.52))!important;
+ border-color:rgba(18,115,147,.22)!important;
+ box-shadow:0 24px 70px rgba(35,104,137,.14),inset 0 1px 0 rgba(255,255,255,.88)!important
+}
+body.light .app .topbar,body.light .app .composer,body.light .app .empty-card,
+body.light .app .suggestion,body.light .app .bubble,body.light .app .model-picker,
+body.light .app .mini-user{
+ background:linear-gradient(145deg,rgba(255,255,255,.76),rgba(219,245,252,.58))!important;
+ border-color:rgba(20,113,145,.24)!important;
+ color:#0b3449!important;
+ box-shadow:0 18px 48px rgba(35,104,137,.13),inset 0 1px 0 rgba(255,255,255,.94)!important
+}
+body.light .app .welcome h1{color:#0b3449!important;text-shadow:none!important}
+body.light .app .welcome p,body.light .app .bubble{color:#173f54!important}
+body.light .app .nav button,body.light .app .nav a{color:#24566b!important}
+body.light .app .nav button.active{background:linear-gradient(110deg,rgba(51,189,194,.23),rgba(94,153,231,.15))!important;color:#08384e!important}
+body.light .app .composer .send-btn{color:#fff!important}
+body.light .app .composer .mode-select{color:#315f73!important}
+body.light .app .composer .mode-select.active{color:#0a465d!important}
+
+/* Performance, touch comfort and safe fallbacks. */
+@media(max-width:900px){
+ .app{gap:8px!important;padding:8px!important}
+ .app>.sidebar{border-radius:23px!important}
+ .app .topbar{margin:2px 2px 0!important}
+}
+@media(max-width:760px){
+ :root{--oh-ios-glass-blur:24px}
+ .app>.sidebar{border-radius:22px!important}
+ .app .topbar{border-radius:20px!important}
+ .app .composer{border-radius:23px!important}
+}
+@media(prefers-reduced-transparency:reduce){
+ :where(.card,.panel,.tile,.modal,.auth-card,.content-card,.dashboard-card,.profile-card,.notification-card,.dropdown-menu,.popover,.toast,[role=dialog],.app>.sidebar,.app .topbar,.app .composer){
+  background:rgba(7,35,54,.94)!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important
+ }
+}
+
 </style>`;
 
 export function injectOceanLiquidGlassTheme(html) {
