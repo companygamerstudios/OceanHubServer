@@ -91,7 +91,7 @@ On /notifications, users can opt in on the current device and choose which categ
 
 Defaults are enabled. Browser/Android permission prompts appear only after the user presses **Activar notificaciones**. Unregistering a device removes its token from the account's device list; it does not revoke the operating-system permission itself.
 
-Windows additionally offers an optional “start OceanHub when Windows starts” setting. The setting is opt-in; when enabled, OceanHub starts hidden in the tray so its WebSocket can receive events.
+Windows additionally offers an optional “start OceanHub when Windows starts” setting. The setting is opt-in; when enabled, OceanHub starts with Windows. Closing the main window hides it in the tray so its WebSocket can continue receiving events.
 
 ## Platform limitations to test
 
