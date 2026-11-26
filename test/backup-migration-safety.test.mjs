@@ -12,8 +12,9 @@ function functionBody(startText, endText) {
 }
 const backup = functionBody('async function handleBackup(env, request)', '\nasync function handleUploadKeys');
 assert.match(backup, /requireAdmin\(env, request\)/, 'El endpoint de backup debe requerir administración');
-assert.match(backup, /BACKUP_DISABLED_NO_EXTERNAL_STORAGE/, 'El endpoint debe reconocer que los backups están desactivados');
-assert.match(backup, /\}, 410\)/, 'No debe fingir que se creó una copia de seguridad');
+assert.match(backup, /if \(!env\?\.BACKUPS\)/, 'El endpoint debe fallar de forma segura si no hay un bucket R2 BACKUPS');
+assert.match(backup, /BACKUPS_R2_NOT_CONFIGURED/, 'El endpoint debe identificar que el binding R2 BACKUPS no está configurado');
+assert.match(backup, /\}, 503\)/, 'Sin el binding R2 no debe fingir que el almacenamiento está disponible');
 
 for (const [name, end] of [
   ['async function handleEncryptKeysAtRest(env, request)', '\nasync function '],
