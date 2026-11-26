@@ -21,6 +21,12 @@ test('Ocean Glass iOS is globally injectable, idempotent and accessible', () => 
   assert.ok(themed.includes('body.light'));
   assert.ok(themed.includes('prefers-reduced-motion:reduce'));
   assert.ok(themed.includes('prefers-contrast:more'));
+  assert.ok(themed.includes('--oh-ios-glass-specular'));
+  assert.ok(themed.includes('HIGH-REFRACTION MATERIAL PASS'));
+  assert.ok(themed.includes('.app .composer'));
+  assert.ok(themed.includes('.app .bubble'));
+  assert.ok(themed.includes('prefers-reduced-transparency:reduce'));
+
   assert.equal((themed.match(/id="ocean-hub-liquid-glass-v18"/g) || []).length, 1);
   assert.equal(injectOceanLiquidGlassTheme(themed), themed);
   assert.equal(injectOceanLiquidGlassTheme('{"ok":true}'), '{"ok":true}');
