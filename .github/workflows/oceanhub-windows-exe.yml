@@ -45,6 +45,9 @@ jobs:
       - name: Install app dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Generate Windows platform icon
+        run: npm run icons:windows
+
       - name: Build OceanHub Windows NSIS installer
         run: npm run tauri:build -- --bundles nsis --ci
 
