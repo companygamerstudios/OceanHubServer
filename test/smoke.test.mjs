@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
-import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
+import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload, afParseCsvRecords } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
 
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
@@ -451,6 +451,69 @@ test('backup encryption round-trips with an independent AES-256-GCM secret', asy
   );
 });
 
+
+test('Air Flow adds authenticated multimodal audio, video and data endpoints', () => {
+  for (const route of [
+    "'/air-flow/api/audio/transcribe'",
+    "'/air-flow/api/audio/speech'",
+    "'/air-flow/api/video/analyze'",
+    "'/air-flow/api/data/analyze'",
+    "'/air-flow/api/agent/tasks'"
+  ]) assert.ok(source.includes(route), 'Missing Air Flow endpoint ' + route);
+  for (const handler of ['handleAirFlowAudioTranscribeV1','handleAirFlowSpeechV1','handleAirFlowVideoAnalyzeV1','handleAirFlowDataAnalyzeV1','handleAirFlowAgentTasksV1']) assert.ok(source.includes(handler));
+  assert.ok(source.includes('stopLive();'));
+});
+
+test('Workers AI binding is present in local and production Wrangler configs', () => {
+  assert.deepEqual(production.ai, { binding: 'AI' });
+  assert.deepEqual(local.ai, { binding: 'AI' });
+  assert.deepEqual(production.previews.ai, { binding: 'AI' });
+  assert.ok(source.includes("env.AI.run('@cf/openai/whisper-large-v3-turbo'"));
+  assert.ok(source.includes("env.AI.run('@cf/deepgram/aura-2-es'"));
+});
+
+test('Air Flow CSV parser handles quoted commas, escaped quotes and CRLF rows', () => {
+  const csv = ['name,description,value', 'Ocean,"blue, deep",12', 'Studio,"said ""hello""",18'].join(String.fromCharCode(13, 10));
+  const rows = afParseCsvRecords(csv);
+  assert.deepEqual(rows, [['name','description','value'],['Ocean','blue, deep','12'],['Studio','said "hello"','18']]);
+});
+
+test('Air Flow CSV parser rejects unclosed quotes and excessive rows', () => {
+  assert.throws(() => afParseCsvRecords('a,b' + String.fromCharCode(10) + '1,"broken'), /CSV_UNCLOSED_QUOTE/);
+  const manyRows = 'a' + String.fromCharCode(10) + Array.from({ length: 10002 }, () => '1').join(String.fromCharCode(10));
+  assert.throws(() => afParseCsvRecords(manyRows), /CSV_ROW_LIMIT/);
+});
+
+test('Air Flow Agent task mutations use a per-account distributed lock and re-read KV state', () => {
+  const start = source.indexOf('async function handleAirFlowAgentTasksV1(env, request) {');
+  const end = source.indexOf('async function handleAirFlowFileDeleteV1', start);
+  assert.ok(start >= 0 && end > start, 'Agent task handler must exist');
+  const handler = source.slice(start, end);
+
+  // Every write path must serialize its read/validate/write transition.
+  assert.match(handler, /withKVLock\(env, lockName, async \(\) => \{[\s\S]{0,240}const tasks = await env\.STATS\.get\(key, 'json'\)/);
+  assert.match(handler, /if \(request\.method === 'DELETE'\)[\s\S]{0,1000}withKVLock\(env, lockName/);
+  assert.match(handler, /if \(action === 'create'\)[\s\S]{0,1800}withKVLock\(env, lockName/);
+  assert.match(handler, /const claim = await withKVLock\(env, lockName, async \(\) => \{[\s\S]{0,500}task\.status !== 'planned'[\s\S]{0,500}status: 'running'/);
+
+  // The potentially slow agent execution must happen after the claim lock is released.
+  const claimEnd = handler.indexOf('// The distributed lock is deliberately released');
+  const delegated = handler.indexOf('await handleAirFlowAgentV11(env, delegatedRequest)', claimEnd);
+  assert.ok(claimEnd > 0 && delegated > claimEnd, 'Agent execution must occur outside the KV lock');
+
+  // Completion/failure may only replace a still-running record, using a fresh read.
+  assert.match(handler, /await withKVLock\(env, lockName, async \(\) => \{[\s\S]{0,180}const tasks = await env\.STATS\.get\(key, 'json'\)[\s\S]{0,180}current\.status !== 'running'/);
+  assert.match(handler, /if \(!current \|\| current\.status !== 'running'\) return/);
+  assert.match(handler, /task claim lock failed/);
+  assert.match(handler, /task create lock failed/);
+  assert.match(handler, /task cancellation lock failed/);
+});
+
+test('Air Flow exposes persistent task and private-file deletion capabilities', () => {
+  assert.ok(source.includes('af_agent_tasks_'));
+  assert.ok(source.includes('Solo puedes cancelar tareas que todavía no se han ejecutado'));
+  assert.ok(source.includes('handleAirFlowFileDeleteV1'));
+});
 test('backup snapshots exclude short-lived credentials and rate-limit state', () => {
   for (const prefix of ['2fa_temp_', 'pwd_reset_', 'email_verify_', 'rl_ip_', 'rl_key_', 'rl_action_']) {
     assert.ok(source.includes(`'${prefix}'`), `backup must exclude ${prefix}`);
