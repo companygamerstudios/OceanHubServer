@@ -16,18 +16,18 @@ const appFallbackStyles = await readFile(new URL('../apps/oceanhub-app/src/style
 test('Ocean Glass iOS is globally injectable, idempotent and accessible', () => {
   const html = '<!doctype html><html lang="es"><head><title>OceanHub</title></head><body><main>OceanHub</main></body></html>';
   const themed = injectOceanLiquidGlassTheme(html);
-  assert.match(themed, /id="ocean-hub-liquid-glass-v18"/);
-  assert.match(themed, /--oh-ios-glass-blur:\\s*28px/);
-  assert.match(themed, /body\\.light/);
-  assert.match(themed, /prefers-reduced-motion:reduce/);
-  assert.match(themed, /prefers-contrast:more/);
+  assert.ok(themed.includes('id="ocean-hub-liquid-glass-v18"'));
+  assert.ok(themed.includes('--oh-ios-glass-blur:28px'));
+  assert.ok(themed.includes('body.light'));
+  assert.ok(themed.includes('prefers-reduced-motion:reduce'));
+  assert.ok(themed.includes('prefers-contrast:more'));
   assert.equal((themed.match(/id="ocean-hub-liquid-glass-v18"/g) || []).length, 1);
   assert.equal(injectOceanLiquidGlassTheme(themed), themed);
   assert.equal(injectOceanLiquidGlassTheme('{"ok":true}'), '{"ok":true}');
-  assert.match(source, /injectFestivityTheme\\(injectOceanLiquidGlassTheme\\(textBody\\), festivityConfig\\)/);
-  assert.match(appFallbackStyles, /--ocean-glass-edge/);
-  assert.match(appFallbackStyles, /backdrop-filter: blur\\(24px\\)/);
-  assert.match(appFallbackStyles, /prefers-reduced-motion: reduce/);
+  assert.ok(source.includes('body = injectFestivityTheme(injectOceanLiquidGlassTheme(textBody), festivityConfig);'));
+  assert.ok(appFallbackStyles.includes('--ocean-glass-edge'));
+  assert.ok(appFallbackStyles.includes('backdrop-filter: blur(24px)'));
+  assert.ok(appFallbackStyles.includes('prefers-reduced-motion: reduce'));
 });
 
 test('native build CI creates and validates only a directly downloadable Android APK', () => {
