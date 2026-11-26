@@ -2,7 +2,7 @@ name: OceanHub Windows EXE
 
 on:
   push:
-    branches: ["feat/oceanhub-push-notifications"]
+    branches: ["main", "release/oceanhub-3.0.2-airflow-push"]
     paths:
       - "apps/oceanhub-app/**"
       - ".github/workflows/oceanhub-windows-exe.yml"
@@ -74,7 +74,7 @@ jobs:
           Get-FileHash "release/OceanHub-Setup-Windows-x64.exe" -Algorithm SHA256
 
       - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: OceanHub-Windows-x64-EXE
           path: apps/oceanhub-app/release/OceanHub-Setup-Windows-x64.exe
