@@ -75,6 +75,14 @@ test("the startup splash is injected locally and handles quick page loads", asyn
   assert.ok(packageJson.scripts.build.includes("loading-splash.js"));
 });
 
+test("Windows close-to-tray keeps the app alive until the tray Exit action", async () => {
+  const native = await read("apps/oceanhub-app/src-tauri/src/lib.rs");
+  assert.ok(native.includes("WindowEvent::CloseRequested"));
+  assert.ok(native.includes("api.prevent_close()"));
+  assert.ok(native.includes("window.hide()"));
+  assert.ok(native.includes('"quit" => app.exit(0)'));
+});
+
 test("production deployment requires an explicit manual dispatch from main", async () => {
   const workflow = await read(".github/workflows/deploy-production.yml");
   assert.ok(workflow.includes("workflow_dispatch:"));
