@@ -6,7 +6,7 @@
 - Spanish text-to-speech through Cloudflare Workers AI Deepgram Aura-2, returned as MP3.
 - Short-clip video understanding through the existing Gemini API key, with an 8 MB direct-upload cap.
 - CSV descriptive statistics and optional LLM interpretation of aggregates (raw rows are not sent to the LLM).
-- Per-account persistent Agent task records with explicit confirmation before execution and cancellation while still planned.
+- Per-account persistent Agent task records that save the proposed plan, require explicit confirmation before execution and allow cancellation while still planned.
 - Private file deletion that removes both the stored object and its per-account index entry.
 - Live microphone teardown when the Air Flow drawer is closed.
 
