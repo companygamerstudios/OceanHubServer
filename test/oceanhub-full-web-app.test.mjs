@@ -9,7 +9,7 @@ const read = relative => readFile(path.join(root, relative), "utf8");
 
 test("the Android Tauri app opens the complete official OceanHub website", async () => {
   const config = JSON.parse(await read("apps/oceanhub-app/src-tauri/tauri.conf.json"));
-  const expected = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.1";
+  const expected = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/app-launch?clientVersion=3.0.2";
 
   assert.equal(config.productName, "OceanHub");
   assert.equal(config.identifier, "com.companygamerstudios.oceanhub");
@@ -20,7 +20,7 @@ test("the Android Tauri app opens the complete official OceanHub website", async
   assert.ok(config.bundle.icon.includes("icons/icon.png"));
   assert.deepEqual(config.bundle.targets, ["nsis"]);
   assert.equal(config.bundle.android.minSdkVersion, 24);
-  assert.equal(config.bundle.android.versionCode, 3000002);
+  assert.equal(config.bundle.android.versionCode, 3000003);
 });
 
 test("the Android build validates the installed app identity and launcher entry", async () => {
