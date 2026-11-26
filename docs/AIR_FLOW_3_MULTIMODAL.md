@@ -12,7 +12,7 @@
 
 ## Configuration
 
-Both Wrangler configurations now declare the Workers AI binding:
+Both Wrangler configurations declare the Workers AI binding for local and production use, and the production config also declares `previews.ai`. Cloudflare Previews do not inherit production bindings, so this explicitly enables the AI API binding for branch previews:
 
 ```json
 {
@@ -42,3 +42,8 @@ The Worker returns a clear 503 response if the `AI` binding is unavailable, so t
 - Add durable multi-step Agent execution using Cloudflare Workflows or Agents SDK, with actual cancellation and progress streaming.
 - Add optional video generation and music generation only after selecting a provider, reviewing pricing/licensing, and obtaining a user-approved API credential where required.
 - Expand integration tests to exercise live provider calls in an isolated Cloudflare Preview, not production data.
+
+
+## Preview isolation note
+
+Cloudflare Workers Previews use their own bindings and do not inherit production configuration. This branch explicitly includes the `AI` API binding under `previews`. The repository does not currently provision a separate staging KV namespace for `STATS`; therefore authenticated multimodal end-to-end tests must wait until an isolated Preview KV resource is configured. Do not point Preview `STATS` at the production namespace for testing.

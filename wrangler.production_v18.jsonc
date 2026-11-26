@@ -60,6 +60,9 @@
           "class_name": "KVLocker"
         }
       ]
+    },
+    "ai": {
+      "binding": "AI"
     }
   },
   "ai": {

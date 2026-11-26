@@ -467,6 +467,7 @@ test('Air Flow adds authenticated multimodal audio, video and data endpoints', (
 test('Workers AI binding is present in local and production Wrangler configs', () => {
   assert.deepEqual(production.ai, { binding: 'AI' });
   assert.deepEqual(local.ai, { binding: 'AI' });
+  assert.deepEqual(production.previews.ai, { binding: 'AI' });
   assert.ok(source.includes("env.AI.run('@cf/openai/whisper-large-v3-turbo'"));
   assert.ok(source.includes("env.AI.run('@cf/deepgram/aura-2-es'"));
 });
