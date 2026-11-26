@@ -1057,20 +1057,6 @@ export class KVLocker {
         this.state = state;
     }
 
-    // The Windows client sends periodic pings; answer them so its heartbeat
-    // does not close a healthy notification socket after 75 seconds.
-    webSocketMessage(socket, message) {
-        try {
-            const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
-            const payload = JSON.parse(raw);
-            if (payload?.type === 'ping') {
-                socket.send(JSON.stringify({ type: 'pong', at: Date.now() }));
-            }
-        } catch (_) {
-            // Ignore malformed client frames; they must not interrupt push delivery.
-        }
-    }
-
     async fetch(request) {
         const url = new URL(request.url);
 
