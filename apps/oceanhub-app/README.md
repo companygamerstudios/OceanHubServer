@@ -74,9 +74,11 @@ npm run icons:android
 npm run tauri:android:build
 ```
 
-El workflow **OceanHub Android APK** construye la APK ARM64, verifica la firma con `apksigner` y comprueba el identificador y nombre de paquete antes de crear la publicación estable de GitHub Releases.
+El workflow **OceanHub Android APK** de una rama o pull request genera una APK ARM64 de validación (debug), comprueba el identificador, el nombre del paquete, el icono y la actividad de inicio, y adjunta el archivo directamente como artefacto de GitHub Actions. La validación no firma una versión estable ni crea un GitHub Release.
 
-El workflow de Windows compila y entrega el instalador NSIS como artefacto de validación. El workflow de distribución genera el instalador versionado y solo lo adjunta a un GitHub Release cuando se publica o se ejecuta manualmente con una etiqueta coincidente. Las validaciones de PR no publican releases ni despliegan a producción.
+La APK estable firmada solo se construye y publica mediante una ejecución manual autorizada del workflow en `main`, con `publish_release=true`, una etiqueta que coincida con la versión de la app y los secretos de firma configurados. Las compilaciones de pull request nunca publican releases ni despliegan a producción.
+
+El workflow de Windows compila y entrega el instalador NSIS como artefacto de validación. La publicación versionada del instalador queda reservada para la ejecución manual autorizada de distribución con una etiqueta coincidente. Las validaciones de PR no publican releases ni despliegan a producción.
 
 ## Alcance de la distribución
 
