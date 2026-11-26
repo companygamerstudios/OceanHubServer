@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
-import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
+import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload, afParseCsvRecords } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
 
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
@@ -449,6 +449,52 @@ test('backup encryption round-trips with an independent AES-256-GCM secret', asy
   await assert.rejects(
     decryptBackupPayload({ ...env, BACKUP_ENCRYPTION_SECRET: 'another-secret-for-tests-only-987654321' }, encrypted)
   );
+});
+
+
+test('Air Flow adds authenticated multimodal audio, video and data endpoints', () => {
+  for (const route of [
+    "'/air-flow/api/audio/transcribe'",
+    "'/air-flow/api/audio/speech'",
+    "'/air-flow/api/video/analyze'",
+    "'/air-flow/api/data/analyze'",
+    "'/air-flow/api/agent/tasks'"
+  ]) assert.ok(source.includes(route), 'Missing Air Flow endpoint ' + route);
+  assert.ok(source.includes('handleAirFlowAudioTranscribeV1'));
+  assert.ok(source.includes('handleAirFlowSpeechV1'));
+  assert.ok(source.includes('handleAirFlowVideoAnalyzeV1'));
+  assert.ok(source.includes('handleAirFlowDataAnalyzeV1'));
+  assert.ok(source.includes('handleAirFlowAgentTasksV1'));
+  assert.ok(source.includes('stopLive();'));
+});
+
+test('Workers AI binding is present in local and production Wrangler configs', () => {
+  assert.deepEqual(production.ai, { binding: 'AI' });
+  assert.deepEqual(local.ai, { binding: 'AI' });
+  assert.match(source, /env\\.AI\\.run\\('@cf\\/openai\\/whisper-large-v3-turbo'/);
+  assert.match(source, /env\\.AI\\.run\\('@cf\\/deepgram\\/aura-2-es'/);
+});
+
+test('Air Flow CSV parser handles quoted commas, escaped quotes and CRLF rows', () => {
+  const rows = afParseCsvRecords('name,description,value\\r\\nOcean,"blue, deep",12\\r\\nStudio,"said ""hello""",18\\r\\n');
+  assert.deepEqual(rows, [
+    ['name', 'description', 'value'],
+    ['Ocean', 'blue, deep', '12'],
+    ['Studio', 'said "hello"', '18']
+  ]);
+});
+
+test('Air Flow CSV parser rejects unclosed quotes and excessive rows', () => {
+  assert.throws(() => afParseCsvRecords('a,b\\n1,"broken'), /CSV_UNCLOSED_QUOTE/);
+  const manyRows = 'a\\n' + Array.from({ length: 10002 }, () => '1').join('\\n');
+  assert.throws(() => afParseCsvRecords(manyRows), /CSV_ROW_LIMIT/);
+});
+
+test('Air Flow exposes persistent task and private-file deletion capabilities', () => {
+  assert.match(source, /af_agent_tasks_/);
+  assert.match(source, /Solo puedes cancelar tareas que todavía no se han ejecutado/);
+  assert.match(source, /handleAirFlowFileDeleteV1/);
+  assert.match(source, /af_file_.*owner/);
 });
 
 test('backup snapshots exclude short-lived credentials and rate-limit state', () => {

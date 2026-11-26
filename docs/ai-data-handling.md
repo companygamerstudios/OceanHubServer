@@ -9,3 +9,15 @@ This document describes data flows implemented in the Worker. Provider behavior 
 - **Credentials:** API keys are intended to be read only from Worker environment Secrets. They must never be included in prompts or logs.
 
 Users should not enter passwords, redeemable license keys, payment details, TOTP seeds, API keys or confidential personal information into AI prompts or uploads. AI providers may apply their own processing and retention policies. This document is technical documentation, not a substitute for the user-facing privacy notice or legal review.
+
+
+## Air Flow 3 multimodal additions
+
+- **Audio transcription:** uploaded audio is sent to Cloudflare Workers AI Whisper for transcription or translation. The audio payload is processed for the request and is not added to the Air Flow file library by this handler.
+- **Speech generation:** text is sent to Cloudflare Workers AI Deepgram Aura-2 (Spanish) and the generated MP3 is returned to the browser. The text is not stored by this handler.
+- **Video understanding:** the uploaded video clip and question are sent to Google Gemini using the existing `GEMINI_API_KEY`. Direct uploads are limited to 8 MB in this first implementation; videos are not stored by this handler.
+- **CSV analysis:** the Worker calculates descriptive statistics locally and sends only the resulting aggregate summary to the configured text provider for interpretation. Raw CSV rows are not forwarded to the language model by this handler.
+- **Agent tasks:** task goals and compact results are stored under a per-account key in the existing KV namespace. A task must be explicitly confirmed before execution; sensitive external actions remain blocked by the existing Agent implementation.
+- **Private-file deletion:** the delete route removes both the per-account file object and its index entry.
+
+Workers AI requires the `AI` binding and incurs model usage charges according to Cloudflare's current pricing. The code does not create or reveal API keys. The existing Gemini key is used for video understanding. Verify current provider retention and pricing before enabling these features for all users.
