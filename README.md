@@ -32,12 +32,12 @@ All community pages require an authenticated session, and administrator verifica
 
 ## Production deployment
 
-Production publishing is handled automatically by the GitHub Actions workflow **Implementar comando**.
+Production publishing is a manual, explicitly authorized action through the GitHub Actions workflow **Implementar comando**. Merging code into `main` does not deploy to Cloudflare.
 
-- Pushes that change the Worker source, production configuration, preflight, deployment workflow, or npm dependencies start this workflow. App-only changes (Android/Windows icons, installers, or app assets) do not redeploy the Worker.
+- Run it only after isolated Preview validation and release approval: **Actions → Implementar comando → Run workflow** on `main`.
 - GitHub checks JavaScript syntax, runs the security smoke tests, validates the production package, and runs the preflight.
 - Only if all checks pass does the workflow publish the `oceanhud` Worker using `wrangler.production_v18.jsonc`.
-- You can also start it manually from GitHub: **Actions → Implementar comando → Run workflow**.
+- The workflow checks syntax, tests, production config, required secrets and Wrangler dry-run before the final deploy step.
 
 You no longer need to run `npm run deploy:production` from your laptop for routine releases. That script remains as a manual fallback for an authorized local operator.
 
