@@ -32,13 +32,14 @@ test('native build CI creates and validates only a directly downloadable Android
   assert.equal(nativeWorkflow.includes('--bundles nsis'), false);
 });
 
-test('production deployment is restricted to main even when manually dispatched', () => {
-  assert.ok(deployWorkflow.includes('branches:'));
-  assert.ok(deployWorkflow.includes('- main'));
+test('production deployment requires an explicit manual dispatch from main', () => {
+  assert.ok(deployWorkflow.includes('workflow_dispatch:'));
+  assert.equal(deployWorkflow.includes('  push:'), false);
   assert.ok(deployWorkflow.includes('refs/heads/main'));
   assert.ok(deployWorkflow.includes('El despliegue de producción solo se permite desde main.'));
   assert.ok(deployWorkflow.includes('actions/checkout@v7'));
   assert.ok(deployWorkflow.includes('actions/setup-node@v7'));
+  assert.ok(deployWorkflow.includes('npx wrangler deploy --config wrangler.production_v18.jsonc'));
 });
 
 test('Cloudflare Workers Builds cannot deploy production from a non-main branch', () => {
