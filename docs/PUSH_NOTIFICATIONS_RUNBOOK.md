@@ -10,7 +10,7 @@ The existing notification inbox remains the source of truth. socialPushNotif() s
 - **Web (Chrome/Edge and other supported browsers):** Firebase Web Messaging uses the root-scoped /firebase-messaging-sw.js service worker and the VAPID public key.
 - **Windows Tauri EXE:** the installed app prefers a same-origin authenticated WebSocket through the existing KV_LOCKER Durable Object and Tauri's native notification plugin. If the live socket is unavailable, the app polls the authenticated notification inbox every 15 seconds while enabled. Closing the main window hides the app in the Windows notification area (system tray); the process remains active while it is in the tray.
 
-The Windows design deliberately does **not** claim push delivery after the user exits OceanHub from the tray, kills its process, signs out of Windows or powers the PC off. Reliable delivery after process termination would require a separate Windows Push Notification Services (WNS) design with an eligible app identity/packaging and Microsoft Entra/Azure setup. The current NSIS installer branch is still separate.
+The Windows design deliberately does **not** claim push delivery after the user exits OceanHub from the tray, kills its process, signs out of Windows or powers the PC off. Reliable delivery after process termination would require a separate Windows Push Notification Services (WNS) design with an eligible app identity/packaging and Microsoft Entra/Azure setup. The NSIS installer validation and release workflows are included in this integration.
 
 ## Security properties
 
