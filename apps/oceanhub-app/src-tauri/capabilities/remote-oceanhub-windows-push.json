@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "remote-oceanhub-windows-push",
+  "description": "Permite al origen oficial de OceanHub usar notificaciones nativas y autoinicio opcional en Windows.",
+  "local": false,
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "https://oceanhud.yoelenmanuelzorrilla.workers.dev/**"
+    ]
+  },
+  "platforms": [
+    "windows"
+  ],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "autostart:default"
+  ]
+}
