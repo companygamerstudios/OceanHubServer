@@ -35,3 +35,15 @@ The native app's local launch fallback uses the same ocean-glass material when i
 ## Scope and safety
 
 The theme is a CSS-only presentation layer. It must not rewrite page markup, add dependencies, change routes, alter JavaScript behavior, modify authentication or permissions, or introduce storage/API calls. Keep Ocean Glass changes separate from release stabilization and deployment work. Production deployment remains an explicit release action.
+
+
+## High-refraction pass
+
+The second visual pass makes the glass material more visible in the actual Air Flow workspace and shared chrome:
+
+- Stronger translucent blue-green surfaces, layered highlights, bright upper rims and deeper soft shadows.
+- Floating capsule toolbars, chips and mode controls.
+- A separated glass sidebar and a floating top bar in Air Flow.
+- A brighter glass composer, message bubbles and suggestion tiles, with a different translucent tint for user messages.
+- A more reflective Ocean orb and stronger visual hierarchy for primary actions.
+- An explicit reduced-transparency fallback for users who prefer less visual layering.
