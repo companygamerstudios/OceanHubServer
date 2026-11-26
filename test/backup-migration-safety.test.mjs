@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
-const config = JSON.parse(await readFile(new URL('./wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
+const config = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
 function functionBody(startText, endText) {
   const start = source.indexOf(startText);
   assert.notEqual(start, -1, `No se encontró ${startText}`);
