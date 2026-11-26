@@ -75,12 +75,13 @@ test("the startup splash is injected locally and handles quick page loads", asyn
   assert.ok(packageJson.scripts.build.includes("loading-splash.js"));
 });
 
-test("production deploy does not run for app-only changes", async () => {
+test("production deployment requires an explicit manual dispatch from main", async () => {
   const workflow = await read(".github/workflows/deploy-production.yml");
-  assert.ok(workflow.includes("paths:"));
-  assert.ok(workflow.includes('"OceanHub_SECURITY_PATCHED_FINAL_v18.js"'));
-  assert.ok(workflow.includes('"wrangler.production_v18.jsonc"'));
-  assert.equal(workflow.includes("apps/oceanhub-app"), false);
+  assert.ok(workflow.includes("workflow_dispatch:"));
+  assert.equal(workflow.includes("  push:"), false);
+  assert.ok(workflow.includes("El despliegue de producción solo se permite desde main."));
+  assert.ok(workflow.includes("node preflight_deploy_v18.mjs production"));
+  assert.ok(workflow.includes("npx wrangler deploy --config wrangler.production_v18.jsonc"));
 });
 
 test("remote OceanHub web content receives no Tauri IPC capability", async () => {
