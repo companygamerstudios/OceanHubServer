@@ -1,4 +1,4 @@
-export const APP_CLIENT_VERSION = "3.0.1";
+export const APP_CLIENT_VERSION = "3.0.2";
 export const VERSION_POLICY_CACHE_KEY = "oceanhub.public-version-policy.v1";
 export const VERSION_POLICY_ENDPOINT = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/api/app/version";
 
