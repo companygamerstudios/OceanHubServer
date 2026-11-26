@@ -3,13 +3,38 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
-import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
+import worker, { getPayPalMode, safeCsvCell, KVLocker, encryptBackupPayload, decryptBackupPayload, injectOceanLiquidGlassTheme } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
 
 const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const production = JSON.parse(await readFile(new URL('../wrangler.production_v18.jsonc', import.meta.url), 'utf8'));
 const local = JSON.parse(await readFile(new URL('../wrangler.local.jsonc', import.meta.url), 'utf8'));
 const nativeWorkflow = await readFile(new URL('../.github/workflows/oceanhub-native-validation.yml', import.meta.url), 'utf8');
 const deployWorkflow = await readFile(new URL('../.github/workflows/deploy-production.yml', import.meta.url), 'utf8');
+const appFallbackStyles = await readFile(new URL('../apps/oceanhub-app/src/styles.css', import.meta.url), 'utf8');
+
+
+test('Ocean Glass iOS is globally injectable, idempotent and accessible', () => {
+  const html = '<!doctype html><html lang="es"><head><title>OceanHub</title></head><body><main>OceanHub</main></body></html>';
+  const themed = injectOceanLiquidGlassTheme(html);
+  assert.ok(themed.includes('id="ocean-hub-liquid-glass-v18"'));
+  assert.ok(themed.includes('--oh-ios-glass-blur:28px'));
+  assert.ok(themed.includes('body.light'));
+  assert.ok(themed.includes('prefers-reduced-motion:reduce'));
+  assert.ok(themed.includes('prefers-contrast:more'));
+  assert.ok(themed.includes('--oh-ios-glass-specular'));
+  assert.ok(themed.includes('HIGH-REFRACTION MATERIAL PASS'));
+  assert.ok(themed.includes('.app .composer'));
+  assert.ok(themed.includes('.app .bubble'));
+  assert.ok(themed.includes('prefers-reduced-transparency:reduce'));
+
+  assert.equal((themed.match(/id="ocean-hub-liquid-glass-v18"/g) || []).length, 1);
+  assert.equal(injectOceanLiquidGlassTheme(themed), themed);
+  assert.equal(injectOceanLiquidGlassTheme('{"ok":true}'), '{"ok":true}');
+  assert.ok(source.includes('body = injectFestivityTheme(injectOceanLiquidGlassTheme(textBody), festivityConfig);'));
+  assert.ok(appFallbackStyles.includes('--ocean-glass-edge'));
+  assert.ok(appFallbackStyles.includes('backdrop-filter: blur(24px)'));
+  assert.ok(appFallbackStyles.includes('prefers-reduced-motion: reduce'));
+});
 
 test('native build CI creates and validates only a directly downloadable Android APK', () => {
   assert.ok(nativeWorkflow.includes('Configure Maven repositories for Android Gradle and buildSrc'));
