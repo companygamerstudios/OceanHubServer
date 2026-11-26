@@ -130,6 +130,6 @@ body {
   .web-launch-button { transition: none; }
   .web-launch-button:hover { transform: none; }
 }
-@media not (backdrop-filter: blur(1px)) {
+@supports not (backdrop-filter: blur(1px)) {
   .web-launch-mark, .web-launch-button { background: #10516c; }
 }
