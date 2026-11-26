@@ -219,6 +219,14 @@ test("Firebase service worker is same-origin scoped and uses current SDK compat 
 });
 
 
+test("Windows push socket fails closed when its Durable Object binding is unavailable", async () => {
+  const request = new Request("https://oceanhub.test/api/push/socket", {
+    headers: { Origin: "https://oceanhub.test", Upgrade: "websocket" }
+  });
+  const response = await handlePushSocket({}, request, EMAIL);
+  assert.equal(response.status, 503);
+});
+
 test("Windows push socket rejects missing or cross-origin Origin headers", async () => {
   const crossOrigin = await handlePushSocket(
     {},
