@@ -286,7 +286,7 @@ jobs:
           } > keystore.properties
           chmod 600 keystore.properties "$RUNNER_TEMP/oceanhub-signing/release.jks"
       - name: Wire release keystore into generated Gradle app
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         shell: bash
         run: |
           python3 - <<'PY'
@@ -335,10 +335,10 @@ jobs:
           print(f"Configured stable signing in {gradle}")
           PY
       - name: Build signed Android arm64 release APK
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         run: npm run tauri:android:build -- --target aarch64 --ci
       - name: Verify release APK signature and package identity
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         shell: bash
         run: |
           set -euo pipefail
@@ -355,7 +355,7 @@ jobs:
           cp "$APK" release/OceanHub-Android-arm64-release.apk
           sha256sum release/OceanHub-Android-arm64-release.apk
       - name: Upload signed release APK as a direct file
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         uses: actions/upload-artifact@v7
         with:
           path: apps/oceanhub-app/release/OceanHub-Android-arm64-release.apk
