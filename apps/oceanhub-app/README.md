@@ -43,7 +43,7 @@ Para un build de escritorio Windows, ejecuta `npm run icons:windows` antes de `n
 
 La aplicación abre el servicio oficial de OceanHub dentro de un WebView Android:
 
-`https://oceanhud.yoelenmanuelzorrilla.workers.dev/`
+`https://oceanhud.yoelenmanuelzorrilla.workers.dev/app-launch?clientVersion=3.0.2`
 
 Requiere conexión a Internet. El backend, las cuentas, sesiones y permisos siguen gestionados por el Worker oficial.
 
@@ -76,7 +76,7 @@ npm run tauri:android:build
 
 El workflow **OceanHub Android APK** construye la APK ARM64, verifica la firma con `apksigner` y comprueba el identificador y nombre de paquete antes de crear la publicación estable de GitHub Releases.
 
-El workflow de Windows valida el build y entrega el ejecutable de escritorio como artefacto directo. El instalador NSIS oficial se prepara en un workflow de distribución separado. Estos workflows de validación no publican releases ni despliegan a producción.
+El workflow de Windows compila y entrega el instalador NSIS como artefacto de validación. El workflow de distribución genera el instalador versionado y solo lo adjunta a un GitHub Release cuando se publica o se ejecuta manualmente con una etiqueta coincidente. Las validaciones de PR no publican releases ni despliegan a producción.
 
 ## Alcance de la distribución
 
