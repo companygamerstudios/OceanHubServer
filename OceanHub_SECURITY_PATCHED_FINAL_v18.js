@@ -6123,23 +6123,42 @@ async function handleAirFlowAgentTasksV1(env, request) {
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
     const safe = await hashKey(String(auth.user.email || '').toLowerCase());
     const key = 'af_agent_tasks_' + safe;
-    const tasks = await env.STATS.get(key, 'json') || [];
+    const lockName = 'af-agent-tasks:' + safe;
+
     if (request.method === 'GET') {
+        const tasks = await env.STATS.get(key, 'json') || [];
         return jsonResponse({ tasks: tasks.slice(0, 30) });
     }
+
     if (request.method === 'DELETE') {
         const id = String(new URL(request.url).searchParams.get('id') || '');
-        const task = tasks.find(item => item.id === id);
-        if (!task) return jsonResponse({ error: 'Tarea no encontrada.' }, 404);
-        if (task.status !== 'planned') return jsonResponse({ error: 'Solo puedes cancelar tareas que todavía no se han ejecutado.' }, 409);
-        const next = tasks.map(item => item.id === id ? { ...item, status: 'cancelled', updated_at: new Date().toISOString() } : item);
-        await env.STATS.put(key, JSON.stringify(next), { expirationTtl: AF_MEMORY_TTL });
-        return jsonResponse({ ok: true, task: next.find(item => item.id === id) });
+        if (!id || id.length > 80) return jsonResponse({ error: 'ID de tarea no válido.' }, 400);
+        try {
+            const outcome = await withKVLock(env, lockName, async () => {
+                // Re-read only after acquiring the lock: concurrent run/cancel requests
+                // must observe the state committed by the previous mutation.
+                const tasks = await env.STATS.get(key, 'json') || [];
+                const task = tasks.find(item => item.id === id);
+                if (!task) return { status: 404, error: 'Tarea no encontrada.' };
+                if (task.status !== 'planned') return { status: 409, error: 'Solo puedes cancelar tareas que todavía no se han ejecutado.' };
+                const cancelled = { ...task, status: 'cancelled', updated_at: new Date().toISOString() };
+                const next = tasks.map(item => item.id === id ? cancelled : item);
+                await env.STATS.put(key, JSON.stringify(next), { expirationTtl: AF_MEMORY_TTL });
+                return { status: 200, task: cancelled };
+            });
+            if (outcome.error) return jsonResponse({ error: outcome.error }, outcome.status);
+            return jsonResponse({ ok: true, task: outcome.task });
+        } catch (error) {
+            console.error('Air Flow Agent task cancellation lock failed:', String(error?.message || error).slice(0, 120));
+            return jsonResponse({ error: 'No se pudo bloquear la tarea de forma segura. Inténtalo de nuevo.' }, 503);
+        }
     }
+
     if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
     let body;
     try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
     const action = String(body?.action || 'create');
+
     if (action === 'create') {
         if (!(await afRateLimit(env, request, auth.user.email, 'agent'))) return jsonResponse({ error: 'Límite del agente alcanzado.' }, 429);
         const goal = String(body?.goal || '').trim().slice(0, 4000);
@@ -6161,23 +6180,49 @@ async function handleAirFlowAgentTasksV1(env, request) {
             updated_at: new Date().toISOString(),
             result_summary: null
         };
-        await env.STATS.put(key, JSON.stringify([task, ...tasks].slice(0, 30)), { expirationTtl: AF_MEMORY_TTL });
-        return jsonResponse({ ok: true, task });
+        try {
+            await withKVLock(env, lockName, async () => {
+                const tasks = await env.STATS.get(key, 'json') || [];
+                await env.STATS.put(key, JSON.stringify([task, ...tasks].slice(0, 30)), { expirationTtl: AF_MEMORY_TTL });
+            });
+            return jsonResponse({ ok: true, task });
+        } catch (error) {
+            console.error('Air Flow Agent task create lock failed:', String(error?.message || error).slice(0, 120));
+            return jsonResponse({ error: 'No se pudo guardar la tarea de forma segura. Inténtalo de nuevo.' }, 503);
+        }
     }
+
     if (action !== 'run') return jsonResponse({ error: 'Acción de tarea no válida.' }, 400);
     const id = String(body?.id || '');
-    const task = tasks.find(item => item.id === id);
-    if (!task) return jsonResponse({ error: 'Tarea no encontrada.' }, 404);
-    if (task.status !== 'planned') return jsonResponse({ error: 'La tarea ya no está pendiente.' }, 409);
+    if (!id || id.length > 80) return jsonResponse({ error: 'ID de tarea no válido.' }, 400);
     if (body?.confirmed !== true) return jsonResponse({ error: 'Confirma expresamente la ejecución de esta tarea.' }, 428);
-    const running = { ...task, status: 'running', updated_at: new Date().toISOString() };
-    const runningTasks = tasks.map(item => item.id === id ? running : item);
-    await env.STATS.put(key, JSON.stringify(runningTasks), { expirationTtl: AF_MEMORY_TTL });
+
+    let running;
+    try {
+        const claim = await withKVLock(env, lockName, async () => {
+            const tasks = await env.STATS.get(key, 'json') || [];
+            const task = tasks.find(item => item.id === id);
+            if (!task) return { status: 404, error: 'Tarea no encontrada.' };
+            if (task.status !== 'planned') return { status: 409, error: 'La tarea ya no está pendiente.' };
+            const claimed = { ...task, status: 'running', updated_at: new Date().toISOString() };
+            const next = tasks.map(item => item.id === id ? claimed : item);
+            await env.STATS.put(key, JSON.stringify(next), { expirationTtl: AF_MEMORY_TTL });
+            return { status: 200, task: claimed };
+        });
+        if (claim.error) return jsonResponse({ error: claim.error }, claim.status);
+        running = claim.task;
+    } catch (error) {
+        console.error('Air Flow Agent task claim lock failed:', String(error?.message || error).slice(0, 120));
+        return jsonResponse({ error: 'No se pudo reclamar la tarea de forma segura. Inténtalo de nuevo.' }, 503);
+    }
+
+    // The distributed lock is deliberately released before running the potentially
+    // slow Agent request. The persisted "running" claim prevents a second execution.
     try {
         const delegatedRequest = new Request(new URL('/air-flow/agent', request.url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Cookie: request.headers.get('Cookie') || '' },
-            body: JSON.stringify({ goal: task.goal, approve: true })
+            body: JSON.stringify({ goal: running.goal, approve: true })
         });
         const response = await handleAirFlowAgentV11(env, delegatedRequest);
         const result = await response.json().catch(() => ({}));
@@ -6192,11 +6237,25 @@ async function handleAirFlowAgentTasksV1(env, request) {
                 message: String(item.message || item.output || '').slice(0, 800)
             })) : []
         };
-        await env.STATS.put(key, JSON.stringify(runningTasks.map(item => item.id === id ? completed : item)), { expirationTtl: AF_MEMORY_TTL });
+        await withKVLock(env, lockName, async () => {
+            const tasks = await env.STATS.get(key, 'json') || [];
+            const current = tasks.find(item => item.id === id);
+            if (!current || current.status !== 'running') return;
+            await env.STATS.put(key, JSON.stringify(tasks.map(item => item.id === id ? completed : item)), { expirationTtl: AF_MEMORY_TTL });
+        });
         return jsonResponse({ task: completed, result }, response.status);
     } catch (error) {
-        const failed = { ...running, status: 'failed', updated_at: new Date().toISOString(), result_summary: [] };
-        await env.STATS.put(key, JSON.stringify(runningTasks.map(item => item.id === id ? failed : item)), { expirationTtl: AF_MEMORY_TTL });
+        try {
+            await withKVLock(env, lockName, async () => {
+                const tasks = await env.STATS.get(key, 'json') || [];
+                const current = tasks.find(item => item.id === id);
+                if (!current || current.status !== 'running') return;
+                const failed = { ...current, status: 'failed', updated_at: new Date().toISOString(), result_summary: [] };
+                await env.STATS.put(key, JSON.stringify(tasks.map(item => item.id === id ? failed : item)), { expirationTtl: AF_MEMORY_TTL });
+            });
+        } catch (lockError) {
+            console.error('Air Flow Agent task failure state lock failed:', String(lockError?.message || lockError).slice(0, 120));
+        }
         console.error('Air Flow Agent task failed:', String(error?.message || error).slice(0, 120));
         return jsonResponse({ error: 'No se pudo completar la tarea.' }, 502);
     }
