@@ -405,6 +405,7 @@ async function sendWindowsSocketEvent(env, email, notification) {
   if (!env?.KV_LOCKER) return;
   if (!env?.KV_LOCKER) return json({ error: "El servicio de notificaciones en tiempo real no está configurado" }, 503);
   if (!env?.KV_LOCKER) return json({ error: "El servicio de notificaciones en tiempo real no está configurado" }, 503);
+  if (!env?.KV_LOCKER) return json({ error: "El servicio de notificaciones en tiempo real no está configurado" }, 503);
   const emailHash = await sha256(normalizedEmail(email));
   const id = env.KV_LOCKER.idFromName("push-live:" + emailHash);
   const stub = env.KV_LOCKER.get(id);
