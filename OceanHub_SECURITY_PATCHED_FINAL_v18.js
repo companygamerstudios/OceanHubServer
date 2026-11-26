@@ -11775,6 +11775,16 @@ body.light :where(input:not([type=checkbox]):not([type=radio]):not([type=range])
 }
 body.light :where(input,textarea)::placeholder{color:#537b8e!important}
 body.light :where(.badge,.pill,.tag,.chip,.status,.status-badge){color:#14526b!important;border-color:rgba(20,113,145,.20)!important}
+body.light{color-scheme:light}
+body.light :where(.muted,.subtitle,.hint,.description,.secondary-text){color:#456a7b!important}
+body.light a:hover{color:#064d6a!important}
+body.light :where(button[type=submit],input[type=submit],.btn-primary,.button-primary,.primary-action,[data-variant="primary"]):not(.danger):not(.btn-danger):not([data-danger="true"]){
+ background:linear-gradient(135deg,rgba(69,198,200,.80),rgba(105,160,235,.78))!important;
+ color:#06364b!important
+}
+body.light :where(button,.btn,a.button,.button,[role=button]):focus-visible,
+body.light :where(input,select,textarea):focus-visible{outline:2px solid #087f9e!important}
+
 
 /* Fine motion is optional; glass remains fully legible without supported blur. */
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
