@@ -65,7 +65,7 @@ test("remote native capabilities are restricted to the official OceanHub Worker 
 
 test("Windows Durable Object source responds to the client's ping heartbeat", async () => {
   const source = await readFile(new URL("../OceanHub_SECURITY_PATCHED_FINAL_v18.js", import.meta.url), "utf8");
-  assert.match(source, /webSocketMessage\(socket, message\)/);
+  assert.match(source, /webSocketMessage\((?:socket|webSocket), message\)/);
   assert.match(source, /payload\?\.type === 'ping'/);
   assert.match(source, /type: 'pong'/);
 });
