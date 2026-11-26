@@ -484,6 +484,31 @@ test('Air Flow CSV parser rejects unclosed quotes and excessive rows', () => {
   assert.throws(() => afParseCsvRecords(manyRows), /CSV_ROW_LIMIT/);
 });
 
+test('Air Flow Agent task mutations use a per-account distributed lock and re-read KV state', () => {
+  const start = source.indexOf('async function handleAirFlowAgentTasksV1(env, request) {');
+  const end = source.indexOf('async function handleAirFlowFileDeleteV1', start);
+  assert.ok(start >= 0 && end > start, 'Agent task handler must exist');
+  const handler = source.slice(start, end);
+
+  // Every write path must serialize its read/validate/write transition.
+  assert.match(handler, /withKVLock\(env, lockName, async \(\) => \{[\s\S]{0,240}const tasks = await env\.STATS\.get\(key, 'json'\)/);
+  assert.match(handler, /if \(request\.method === 'DELETE'\)[\s\S]{0,1000}withKVLock\(env, lockName/);
+  assert.match(handler, /if \(action === 'create'\)[\s\S]{0,1800}withKVLock\(env, lockName/);
+  assert.match(handler, /const claim = await withKVLock\(env, lockName, async \(\) => \{[\s\S]{0,500}task\.status !== 'planned'[\s\S]{0,500}status: 'running'/);
+
+  // The potentially slow agent execution must happen after the claim lock is released.
+  const claimEnd = handler.indexOf('// The distributed lock is deliberately released');
+  const delegated = handler.indexOf('await handleAirFlowAgentV11(env, delegatedRequest)', claimEnd);
+  assert.ok(claimEnd > 0 && delegated > claimEnd, 'Agent execution must occur outside the KV lock');
+
+  // Completion/failure may only replace a still-running record, using a fresh read.
+  assert.match(handler, /await withKVLock\(env, lockName, async \(\) => \{[\s\S]{0,180}const tasks = await env\.STATS\.get\(key, 'json'\)[\s\S]{0,180}current\.status !== 'running'/);
+  assert.match(handler, /if \(!current \|\| current\.status !== 'running'\) return/);
+  assert.match(handler, /task claim lock failed/);
+  assert.match(handler, /task create lock failed/);
+  assert.match(handler, /task cancellation lock failed/);
+});
+
 test('Air Flow exposes persistent task and private-file deletion capabilities', () => {
   assert.ok(source.includes('af_agent_tasks_'));
   assert.ok(source.includes('Solo puedes cancelar tareas que todavía no se han ejecutado'));
