@@ -4,6 +4,17 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "OceanHub_SECURITY_PATCHED_FINAL_v18.js"
+      - "ocean-suite.js"
+      - "download-center.js"
+      - "push-notifications.js"
+      - "push-client.js"
+      - "preflight_deploy_v18.mjs"
+      - "wrangler.production_v18.jsonc"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-production.yml"
   workflow_dispatch:
 
 permissions:
