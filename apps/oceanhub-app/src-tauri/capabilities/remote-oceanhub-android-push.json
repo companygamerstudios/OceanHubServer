@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "remote-oceanhub-android-push",
+  "description": "Permite exclusivamente al origen oficial de OceanHub registrar y gestionar FCM en Android.",
+  "local": false,
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "https://oceanhud.yoelenmanuelzorrilla.workers.dev/**"
+    ]
+  },
+  "platforms": [
+    "android"
+  ],
+  "permissions": [
+    "core:default",
+    "fcm:default",
+    "notification:default"
+  ]
+}

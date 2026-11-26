@@ -94,7 +94,7 @@ test("la caída de red conserva una política obligatoria previamente válida", 
   const cachedPolicy = { ...policy, version: "3.1.0", minimumSupportedVersion: "3.0.2" };
   const storage = makeStorage({ policy: cachedPolicy, checkedAt: "2026-11-19T00:00:00.000Z" });
   const result = await checkVersionPolicy({
-    clientVersion: APP_CLIENT_VERSION,
+    clientVersion: "3.0.1",
     storage,
     fetcher: async () => { throw new Error("offline"); }
   });
@@ -115,16 +115,16 @@ test("rechaza políticas inválidas y no persiste HTML de error como versión", 
   assert.equal(storage.read(VERSION_POLICY_CACHE_KEY), null);
 });
 
-test("OceanHub 3.0.1 marca 3.0.0 como actualización obligatoria", () => {
-  assert.equal(APP_CLIENT_VERSION, "3.0.1");
+test("OceanHub 3.0.2 marca 3.0.1 como actualización obligatoria", () => {
+  assert.equal(APP_CLIENT_VERSION, "3.0.2");
   const stablePolicy = {
     name: "OceanHub",
-    version: "3.0.1",
-    minimumSupportedVersion: "3.0.1",
+    version: "3.0.2",
+    minimumSupportedVersion: "3.0.2",
     channel: "stable",
     downloadUrl: "/download",
-    releaseNotes: "OceanHub 3.0.1"
+    releaseNotes: "OceanHub 3.0.2"
   };
-  assert.equal(getVersionDecision("3.0.0", stablePolicy), "required");
-  assert.equal(getVersionDecision("3.0.1", stablePolicy), "current");
+  assert.equal(getVersionDecision("3.0.1", stablePolicy), "required");
+  assert.equal(getVersionDecision("3.0.2", stablePolicy), "current");
 });

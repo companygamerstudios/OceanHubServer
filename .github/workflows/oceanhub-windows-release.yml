@@ -3,23 +3,19 @@ name: OceanHub Windows installer
 on:
   release:
     types: [published]
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/oceanhub-windows-release.yml
   workflow_dispatch:
     inputs:
       release_tag:
         description: Tag of the stable release to attach the Windows installer to
         required: true
         type: string
-        default: v3.0.1
+        default: v3.0.2
 
 permissions:
   contents: write
 
 concurrency:
-  group: oceanhub-windows-release-${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.1' }}
+  group: oceanhub-windows-release-${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.2' }}
   cancel-in-progress: false
 
 jobs:
@@ -33,7 +29,7 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.1' }}
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.2' }}
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
@@ -42,6 +38,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install app dependencies
         run: npm install --no-audit --no-fund
+      - name: Verify release tag matches app version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
+          $expected = "v$version"
+          $actual = '${{ github.event.release.tag_name || inputs.release_tag }}'
+          if ($actual -ne $expected) { throw "Release tag $actual does not match app version $expected." }
+      - name: Generate Windows platform icon
+        run: npm run icons:windows
       - name: Build Windows NSIS installer
         run: npm run tauri:build -- --ci
       - name: Verify and rename installer
@@ -50,6 +56,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $candidates = Get-ChildItem 'src-tauri/target/release/bundle/nsis' -Filter '*.exe' -File
           if ($candidates.Count -lt 1) { throw 'No NSIS installer was produced.' }
+          if ($candidates.Count -gt 1) { throw 'Multiple NSIS installers were produced; refusing ambiguous release.' }
           $installer = $candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           New-Item -ItemType Directory -Force -Path 'release' | Out-Null
           $version = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
@@ -66,7 +73,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.1' }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || 'v3.0.2' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $installer = Get-ChildItem 'release' -Filter 'OceanHub-Setup-*-x64.exe' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1

@@ -32,21 +32,21 @@ All community pages require an authenticated session, and administrator verifica
 
 ## Production deployment
 
-Production publishing is handled automatically by the GitHub Actions workflow **Implementar comando**.
+Production publishing is a manual, explicitly authorized action through the GitHub Actions workflow **Implementar comando**. Merging code into `main` does not deploy to Cloudflare.
 
-- Every commit pushed to `main` starts the workflow.
+- Run it only after isolated Preview validation and release approval: **Actions → Implementar comando → Run workflow** on `main`.
 - GitHub checks JavaScript syntax, runs the security smoke tests, validates the production package, and runs the preflight.
 - Only if all checks pass does the workflow publish the `oceanhud` Worker using `wrangler.production_v18.jsonc`.
-- You can also start it from GitHub: **Actions → Implementar comando → Run workflow**.
+- The workflow checks syntax, tests, production config, required secrets and Wrangler dry-run before the final deploy step.
 
 You no longer need to run `npm run deploy:production` from your laptop for routine releases. That script remains as a manual fallback for an authorized local operator.
 
 Before this automation can publish, add two repository Actions secrets in **Settings → Secrets and variables → Actions**:
 `CLOUDFLARE_API_TOKEN` (a Cloudflare API token scoped to the required Workers deployment permissions) and `CLOUDFLARE_ACCOUNT_ID`. Never put either value in source files or chat. The workflow stops before deployment if they are missing or if the production preflight fails.
 
-This workflow does not deploy code from feature branches or pull requests. Merge the change into `main`; it then runs the checks and deployment automatically.
+This workflow does not run on pushes, feature branches or pull requests. After the code is reviewed and Preview validation is complete, an authorized operator must start it manually from `main`.
 
-This runs the preflight and then deploys with `wrangler.production_v18.jsonc`. The preflight checks the required secret names in Cloudflare using Wrangler's supported `secrets.required` configuration field; it cannot read secret values and therefore cannot certify their length, uniqueness or correctness. Those checks require secure runtime verification or a manual secret manager review. This field contains names only; never put secret values in this repository. See the official Wrangler configuration documentation: https://developers.cloudflare.com/workers/wrangler/configuration/.
+The workflow runs the preflight and then deploys with `wrangler.production_v18.jsonc` only after the manual dispatch. The preflight checks the required secret names in Cloudflare using Wrangler's supported `secrets.required` configuration field; it cannot read secret values and therefore cannot certify their length, uniqueness or correctness. Those checks require secure runtime verification or a manual secret manager review. This field contains names only; never put secret values in this repository. See the official Wrangler configuration documentation: https://developers.cloudflare.com/workers/wrangler/configuration/.
 
 No staging Worker or KV namespace is created by this repository. Do not deploy staging until a separate Worker, independent KV namespace, separate Durable Object storage and PayPal Sandbox credentials have been created and tested. The separate `quality.yml` workflow only validates changes; production publishing is performed by **Implementar comando** after a push to `main`.
 
@@ -66,7 +66,7 @@ The integrated Ocean Suite entry point is `/ocean`. It brings together the exist
 
 ## Ejecución de cuatro fases activas
 
-La rama de trabajo `feat/oceanhub-five-phase-execution` recoge cuatro áreas activas: seguridad y estabilidad, pagos y vendedores, experiencia social y OceanHub 3.0. **No requiere bucket ni almacenamiento Cloudflare R2.** La exportación de datos de cuenta `GET /account/export` se conserva, pero la función de backup completo queda aplazada. La app Tauri de esta entrega es **solo para Android** y se distribuye como APK instalable que carga la **web completa del Worker** dentro de WebView, sin módulos de demostración ni backend paralelo; el responsive real debe validarse por ruta y dispositivo. Consulta `docs/FIVE_PHASE_EXECUTION.md` y `apps/oceanhub-app/README.md` para arquitectura, pruebas y límites. `docs/BACKUP_RUNBOOK.md` se mantiene únicamente como referencia futura; no sigas sus pasos para probar esta entrega. Los cambios todavía no se han desplegado en producción.
+La rama de trabajo `feat/oceanhub-five-phase-execution` recoge cuatro áreas activas: seguridad y estabilidad, pagos y vendedores, experiencia social y OceanHub 3.0. **No requiere bucket ni almacenamiento Cloudflare R2.** La exportación de datos de cuenta `GET /account/export` se conserva, pero la función de backup completo queda aplazada. La app Tauri OceanHub en desarrollo prepara cliente Android (APK ARM64) y Windows que cargan la **web completa del Worker** dentro de WebView, sin módulos de demostración ni backend paralelo. La versión candidata 3.0.2 aún requiere CI y revisión antes de publicarse; el responsive real debe validarse por ruta y dispositivo. Consulta `docs/FIVE_PHASE_EXECUTION.md` y `apps/oceanhub-app/README.md` para arquitectura, pruebas y límites. `docs/BACKUP_RUNBOOK.md` se mantiene únicamente como referencia futura; no sigas sus pasos para probar esta entrega. Los cambios todavía no se han desplegado en producción.
 
 ### Pruebas de compatibilidad del cliente
 

@@ -1,0 +1,78 @@
+name: OceanHub push notification validation
+
+on:
+  push:
+    branches: ["main", "release/oceanhub-3.0.2-airflow-push"]
+    paths:
+      - "OceanHub_SECURITY_PATCHED_FINAL_v18.js"
+      - "push-notifications.js"
+      - "push-client.js"
+      - "wrangler.local.jsonc"
+      - "package.json"
+      - "test/**"
+      - "apps/oceanhub-app/**"
+      - ".github/workflows/oceanhub-push-validation.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "OceanHub_SECURITY_PATCHED_FINAL_v18.js"
+      - "push-notifications.js"
+      - "push-client.js"
+      - "wrangler.local.jsonc"
+      - "package.json"
+      - "test/**"
+      - "apps/oceanhub-app/**"
+      - ".github/workflows/oceanhub-push-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oceanhub-push-validation-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worker-tests:
+    name: Worker push and regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install Worker dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check main Worker syntax
+        run: node --check OceanHub_SECURITY_PATCHED_FINAL_v18.js
+      - name: Check push server module syntax
+        run: node --check push-notifications.js
+      - name: Check push client module syntax
+        run: node --check push-client.js
+      - name: Check deployment preflight syntax
+        run: node --check preflight_deploy_v18.mjs
+      - name: Run complete test suite
+        run: npm test
+      - name: Validate local Wrangler config without deployment
+        run: npx wrangler deploy --dry-run --config wrangler.local.jsonc
+
+  windows-native:
+    name: Windows Tauri compile validation
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/oceanhub-app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install app dependencies
+        run: npm install --no-audit --no-fund
+      - name: Type-check and build frontend
+        run: npm run build
+      - name: Compile Windows native plugins and tray integration
+        run: cargo check --manifest-path src-tauri/Cargo.toml

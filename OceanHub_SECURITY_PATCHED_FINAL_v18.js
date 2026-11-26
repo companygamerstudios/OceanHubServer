@@ -1,5 +1,7 @@
 import { handleOceanSuiteRoute, getVerifiedBadge, renderVerifiedBadge } from './ocean-suite.js';
 import { handleDownloadCenterRoute, injectAppUpdateNotice } from './download-center.js';
+import { handlePushApi, handlePushSocket, handleFirebaseMessagingServiceWorker, sendPushToUser } from './push-notifications.js';
+import { PUSH_CLIENT_JS } from './push-client.js';
 
 // ==========================================================
 // 🌊 OCEAN HUB V29.1 — SOCIAL + editar perfil (bio/avatar) + notificaciones
@@ -1058,6 +1060,38 @@ export class KVLocker {
     async fetch(request) {
         const url = new URL(request.url);
 
+        if (url.pathname === '/realtime/push/connect' && request.method === 'GET') {
+            if (String(request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
+                return new Response('websocket required', { status: 426 });
+            }
+            if (this.state.getWebSockets('push').length >= 5) return new Response('too many connections', { status: 429 });
+            const pair = new WebSocketPair();
+            const client = pair[0], server = pair[1];
+            this.state.acceptWebSocket(server, ['push']);
+            server.serializeAttachment({ connectedAt: Date.now() });
+            return new Response(null, { status: 101, webSocket: client });
+        }
+        if (url.pathname === '/realtime/push/publish' && request.method === 'POST') {
+            const raw = await request.text();
+            if (raw.length > 4096) return new Response('payload too large', { status: 413 });
+            let payload; try { payload = JSON.parse(raw); } catch { return new Response('bad request', { status: 400 }); }
+            const href = String(payload?.href || '/notifications');
+            if (!href.startsWith('/') || href.startsWith('//') || href.includes('\\')) return new Response('bad href', { status: 400 });
+            const message = JSON.stringify({
+                title: String(payload?.title || 'OceanHub').slice(0, 120),
+                body: String(payload?.body || '').slice(0, 180),
+                type: String(payload?.type || 'info').slice(0, 40),
+                href: href.slice(0, 200),
+                at: String(payload?.at || new Date().toISOString()).slice(0, 40)
+            });
+            let delivered = 0;
+            for (const socket of this.state.getWebSockets('push')) {
+                try { socket.send(message); delivered += 1; }
+                catch (_) { try { socket.close(1011, 'delivery failed'); } catch (_) {} }
+            }
+            return Response.json({ ok: true, delivered });
+        }
+
         if (url.pathname === '/realtime/presence/touch' && request.method === 'POST') {
             let payload; try { payload = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
             const key = String(payload?.key || '');
@@ -1185,6 +1219,27 @@ export class KVLocker {
         }
              return new Response('not found', { status: 404 });
   }
+
+    webSocketMessage(webSocket, message) {
+        if (typeof message !== 'string' || message.length > 256) return;
+        try {
+            const payload = JSON.parse(message);
+            if (payload?.type === 'ping') webSocket.send(JSON.stringify({ type: 'pong' }));
+        } catch (_) {}
+    }
+
+    webSocketClose(webSocket, code, reason) {
+        // Complete the close handshake for hibernatable WebSockets.
+        if (code !== 1005 && code !== 1006 && code !== 1015) {
+            try { webSocket.close(code, reason); } catch (_) {}
+        } else {
+            try { webSocket.close(); } catch (_) {}
+        }
+    }
+
+    webSocketError(webSocket, error) {
+        console.warn('Push WebSocket error:', error?.message || 'unknown');
+    }
 }
 
 // ==================================================
@@ -5782,14 +5837,511 @@ async function handleAirFlowPersonalityLabV11(env, request) {
     return jsonResponse({ active: versions[0], results });
 }
 
+
+const AF_MAX_AUDIO_UPLOAD_BYTES = 8 * 1024 * 1024;
+const AF_MAX_VIDEO_UPLOAD_BYTES = 8 * 1024 * 1024;
+const AF_DATA_MAX_BYTES = 2 * 1024 * 1024;
+const AF_ALLOWED_AUDIO_MIME = new Set([
+    'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg',
+    'audio/webm', 'audio/mp4', 'audio/aac', 'audio/flac', 'audio/m4a'
+]);
+const AF_ALLOWED_VIDEO_MIME = new Set([
+    'video/mp4', 'video/mpeg', 'video/mov', 'video/avi', 'video/x-flv',
+    'video/mpg', 'video/webm', 'video/wmv', 'video/3gpp', 'video/quicktime'
+]);
+
+function afDecodeUploadBase64(data, maximumBytes) {
+    const clean = String(data || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
+    if (!clean || !/^[A-Za-z0-9+/]*={0,2}$/.test(clean) || clean.length % 4 !== 0) {
+        throw new Error('UPLOAD_BASE64_INVALID');
+    }
+    const padding = clean.endsWith('==') ? 2 : (clean.endsWith('=') ? 1 : 0);
+    const size = Math.max(0, Math.floor(clean.length * 3 / 4) - padding);
+    if (size > maximumBytes) throw new Error('UPLOAD_TOO_LARGE');
+    return { base64: clean, size };
+}
+
+async function handleAirFlowAudioTranscribeV1(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
+    if (!(await afRateLimit(env, request, auth.user.email, 'audio'))) {
+        return jsonResponse({ error: 'Límite de transcripción alcanzado. Espera un momento.' }, 429);
+    }
+    const declaredLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredLength > Math.ceil(AF_MAX_AUDIO_UPLOAD_BYTES * 1.5 + 100_000)) {
+        return jsonResponse({ error: 'El audio supera el límite de 8 MB.' }, 413);
+    }
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
+    const file = body?.audio || body?.file || {};
+    const mime = String(file.mimeType || file.mime_type || 'audio/mpeg').split(';')[0].trim().toLowerCase();
+    if (!AF_ALLOWED_AUDIO_MIME.has(mime)) {
+        return jsonResponse({ error: 'Formato de audio no compatible. Usa MP3, WAV, OGG, WebM, M4A, AAC o FLAC.' }, 415);
+    }
+    const declaredAudioMime = String(file.data || '').match(/^data:([^;,]+);base64,/i)?.[1]?.toLowerCase();
+    if (declaredAudioMime && declaredAudioMime !== mime) return jsonResponse({ error: 'El tipo MIME del audio no coincide con sus datos.' }, 415);
+    let upload;
+    try { upload = afDecodeUploadBase64(file.data, AF_MAX_AUDIO_UPLOAD_BYTES); }
+    catch (error) {
+        return jsonResponse({ error: error.message === 'UPLOAD_TOO_LARGE' ? 'El audio supera el límite de 8 MB.' : 'El audio no tiene un formato Base64 válido.' }, error.message === 'UPLOAD_TOO_LARGE' ? 413 : 400);
+    }
+    if (!env.AI || typeof env.AI.run !== 'function') {
+        return jsonResponse({ error: 'Workers AI no está enlazado todavía. La función quedará disponible cuando se active el binding AI de Cloudflare.' }, 503);
+    }
+    const task = body?.task === 'translate' ? 'translate' : 'transcribe';
+    const language = String(body?.language || '').trim().slice(0, 16);
+    const started = Date.now();
+    try {
+        const result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
+            audio: upload.base64,
+            task,
+            ...(language ? { language } : {})
+        });
+        const transcript = String(result?.text || result?.transcription_info?.text || '').trim();
+        if (!transcript) throw new Error('WHISPER_EMPTY_TRANSCRIPT');
+        await afLogMetric(env, { request: true, latency: Date.now() - started, mode: 'AUDIO' });
+        return jsonResponse({
+            ok: true,
+            provider: 'Cloudflare Workers AI',
+            model: '@cf/openai/whisper-large-v3-turbo',
+            task,
+            transcript,
+            language: result?.transcription_info?.language || null,
+            duration_seconds: result?.transcription_info?.duration ?? null,
+            word_count: result?.word_count ?? null,
+            segments: Array.isArray(result?.segments) ? result.segments.slice(0, 2000) : [],
+            vtt: typeof result?.vtt === 'string' ? result.vtt.slice(0, 500000) : null
+        });
+    } catch (error) {
+        console.error('Air Flow audio transcription failed:', String(error?.message || error).slice(0, 120));
+        await afLogMetric(env, { request: true, error: true, latency: Date.now() - started, mode: 'AUDIO' });
+        return jsonResponse({ error: 'No se pudo transcribir este audio. Comprueba el formato y vuelve a intentarlo.' }, 502);
+    }
+}
+
+async function handleAirFlowSpeechV1(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
+    if (!(await afRateLimit(env, request, auth.user.email, 'speech'))) {
+        return jsonResponse({ error: 'Límite de generación de voz alcanzado. Espera un momento.' }, 429);
+    }
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
+    const text = String(body?.text || '').trim().slice(0, 1800);
+    if (!text) return jsonResponse({ error: 'Escribe el texto que quieres convertir en voz.' }, 400);
+    if (String(body?.text || '').length > 1800) return jsonResponse({ error: 'El texto no puede superar 1.800 caracteres.' }, 413);
+    if (!env.AI || typeof env.AI.run !== 'function') {
+        return jsonResponse({ error: 'Workers AI no está enlazado todavía. La función quedará disponible cuando se active el binding AI de Cloudflare.' }, 503);
+    }
+    const speakers = new Set(['sirio', 'nestor', 'carina', 'celeste', 'alvaro', 'diana', 'aquila', 'selena', 'estrella', 'javier']);
+    const speaker = speakers.has(String(body?.speaker || '').toLowerCase()) ? String(body.speaker).toLowerCase() : 'aquila';
+    const started = Date.now();
+    try {
+        const audio = await env.AI.run('@cf/deepgram/aura-2-es', {
+            text,
+            speaker,
+            encoding: 'mp3',
+            container: 'none'
+        });
+        await afLogMetric(env, { request: true, latency: Date.now() - started, mode: 'TTS' });
+        if (audio instanceof ReadableStream) {
+            return new Response(audio, {
+                headers: {
+                    'Content-Type': 'audio/mpeg',
+                    'Cache-Control': 'no-store',
+                    'X-Content-Type-Options': 'nosniff',
+                    'Content-Disposition': 'inline; filename="air-flow-voice.mp3"'
+                }
+            });
+        }
+        if (audio instanceof ArrayBuffer || ArrayBuffer.isView(audio)) {
+            return new Response(audio, {
+                headers: {
+                    'Content-Type': 'audio/mpeg',
+                    'Cache-Control': 'no-store',
+                    'X-Content-Type-Options': 'nosniff',
+                    'Content-Disposition': 'inline; filename="air-flow-voice.mp3"'
+                }
+            });
+        }
+        throw new Error('AURA_EMPTY_AUDIO');
+    } catch (error) {
+        console.error('Air Flow speech generation failed:', String(error?.message || error).slice(0, 120));
+        await afLogMetric(env, { request: true, error: true, latency: Date.now() - started, mode: 'TTS' });
+        return jsonResponse({ error: 'No se pudo generar la voz ahora. Intenta con un texto más corto.' }, 502);
+    }
+}
+
+async function handleAirFlowVideoAnalyzeV1(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
+    if (!(await afRateLimit(env, request, auth.user.email, 'video'))) {
+        return jsonResponse({ error: 'Límite de análisis de vídeo alcanzado. Espera un momento.' }, 429);
+    }
+    const declaredLength = Number(request.headers.get('Content-Length') || 0);
+    if (declaredLength > Math.ceil(AF_MAX_VIDEO_UPLOAD_BYTES * 1.5 + 100_000)) {
+        return jsonResponse({ error: 'El vídeo supera el límite de 8 MB para análisis directo.' }, 413);
+    }
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
+    const file = body?.video || body?.file || {};
+    const mime = String(file.mimeType || file.mime_type || '').split(';')[0].trim().toLowerCase();
+    if (!AF_ALLOWED_VIDEO_MIME.has(mime)) {
+        return jsonResponse({ error: 'Formato de vídeo no compatible. Usa MP4, MOV, MPEG, AVI o WebM.' }, 415);
+    }
+    const declaredVideoMime = String(file.data || '').match(/^data:([^;,]+);base64,/i)?.[1]?.toLowerCase();
+    if (declaredVideoMime && declaredVideoMime !== mime) return jsonResponse({ error: 'El tipo MIME del vídeo no coincide con sus datos.' }, 415);
+    let upload;
+    try { upload = afDecodeUploadBase64(file.data, AF_MAX_VIDEO_UPLOAD_BYTES); }
+    catch (error) {
+        return jsonResponse({ error: error.message === 'UPLOAD_TOO_LARGE' ? 'El vídeo supera el límite de 8 MB.' : 'El vídeo no tiene un formato Base64 válido.' }, error.message === 'UPLOAD_TOO_LARGE' ? 413 : 400);
+    }
+    const apiKey = String(env.GEMINI_API_KEY || '').trim();
+    if (!apiKey) return jsonResponse({ error: 'Falta GEMINI_API_KEY en Cloudflare para analizar vídeo.' }, 503);
+    const prompt = String(body?.prompt || 'Resume este vídeo, describe las escenas importantes y señala los momentos relevantes con marcas de tiempo cuando sea posible.').trim().slice(0, 2500);
+    const model = String(env.GEMINI_VIDEO_MODEL || env.GEMINI_MODEL || AF_GEMINI_MODEL_DEFAULT).trim();
+    const started = Date.now();
+    try {
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            body: JSON.stringify({
+                systemInstruction: { parts: [{ text: afBuildPrompt('VISION') }] },
+                contents: [{
+                    role: 'user',
+                    parts: [
+                        { text: prompt },
+                        { inline_data: { mime_type: mime, data: upload.base64 } }
+                    ]
+                }],
+                generationConfig: { maxOutputTokens: 2200 }
+            })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error('GEMINI_VIDEO_HTTP_' + response.status);
+        const answer = afQualityFilter(afExtractGeminiText(result));
+        if (!answer) throw new Error('GEMINI_VIDEO_EMPTY_RESPONSE');
+        await afLogMetric(env, { request: true, latency: Date.now() - started, tokens: Number(result?.usageMetadata?.totalTokenCount || 0), model, mode: 'VIDEO' });
+        return jsonResponse({
+            ok: true,
+            provider: 'Gemini',
+            model,
+            answer,
+            mime_type: mime,
+            bytes: upload.size,
+            capabilities: ['video_understanding', 'scene_summary', 'timestamp_questions']
+        });
+    } catch (error) {
+        console.error('Air Flow video analysis failed:', String(error?.message || error).slice(0, 120));
+        await afLogMetric(env, { request: true, error: true, latency: Date.now() - started, model, mode: 'VIDEO' });
+        return jsonResponse({ error: 'Gemini no pudo analizar este vídeo. Prueba con un clip más corto o comprimido.' }, 502);
+    }
+}
+
+export function afParseCsvRecords(source) {
+    const input = String(source || '');
+    if (!input || input.length > AF_DATA_MAX_BYTES) throw new Error('CSV_SIZE_LIMIT');
+    const rows = [];
+    let row = [];
+    let field = '';
+    let quoted = false;
+    for (let i = 0; i < input.length; i++) {
+        const char = input[i];
+        if (quoted) {
+            if (char === '"' && input[i + 1] === '"') {
+                field += '"';
+                i++;
+            } else if (char === '"') {
+                quoted = false;
+            } else {
+                field += char;
+            }
+        } else if (char === '"' && field.length === 0) {
+            quoted = true;
+        } else if (char === ',') {
+            row.push(field);
+            field = '';
+        } else if (char === '\n' || char === '\r') {
+            if (char === '\r' && input[i + 1] === '\n') i++;
+            row.push(field);
+            field = '';
+            if (row.some(cell => cell.trim() !== '')) rows.push(row);
+            row = [];
+            if (rows.length > 10001) throw new Error('CSV_ROW_LIMIT');
+        } else {
+            field += char;
+        }
+    }
+    if (quoted) throw new Error('CSV_UNCLOSED_QUOTE');
+    row.push(field);
+    if (row.some(cell => cell.trim() !== '')) rows.push(row);
+    if (rows.length > 10001) throw new Error('CSV_ROW_LIMIT');
+    if (!rows.length || rows[0].length > 100) throw new Error('CSV_COLUMN_LIMIT');
+    const width = rows[0].length;
+    if (rows.some(record => record.length > 100 || record.length > width + 20)) throw new Error('CSV_COLUMN_LIMIT');
+    return rows;
+}
+
+async function handleAirFlowDataAnalyzeV1(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
+    if (!(await afRateLimit(env, request, auth.user.email, 'data'))) {
+        return jsonResponse({ error: 'Límite de análisis de datos alcanzado. Espera un momento.' }, 429);
+    }
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
+    const file = body?.file || {};
+    const mime = String(file.mimeType || file.mime_type || 'text/csv').split(';')[0].trim().toLowerCase();
+    if (!['text/csv', 'application/vnd.ms-excel', 'text/plain'].includes(mime)) {
+        return jsonResponse({ error: 'Selecciona un archivo CSV o texto delimitado por comas.' }, 415);
+    }
+    let upload;
+    try { upload = afDecodeUploadBase64(file.data, AF_DATA_MAX_BYTES); }
+    catch (error) {
+        return jsonResponse({ error: error.message === 'UPLOAD_TOO_LARGE' ? 'El CSV supera el límite de 2 MB.' : 'El CSV no tiene un formato Base64 válido.' }, error.message === 'UPLOAD_TOO_LARGE' ? 413 : 400);
+    }
+    let csvText;
+    try {
+        csvText = await afReadFileAsText(upload.base64, mime);
+        if (!csvText) throw new Error('CSV_EMPTY');
+    } catch (_) {
+        return jsonResponse({ error: 'No se pudo leer el CSV como texto UTF-8.' }, 400);
+    }
+    let records;
+    try { records = afParseCsvRecords(csvText); }
+    catch (error) {
+        const message = error.message === 'CSV_ROW_LIMIT' ? 'El CSV supera el límite de 10.000 filas.' :
+            error.message === 'CSV_COLUMN_LIMIT' ? 'El CSV supera el límite de 100 columnas.' :
+            error.message === 'CSV_UNCLOSED_QUOTE' ? 'El CSV contiene comillas sin cerrar.' :
+            'El CSV está vacío o supera el límite permitido.';
+        return jsonResponse({ error: message }, 400);
+    }
+    if (records.length < 2) return jsonResponse({ error: 'El CSV necesita encabezados y al menos una fila de datos.' }, 400);
+    const headers = records[0].map((cell, index) => String(cell || '').trim().slice(0, 100) || ('columna_' + (index + 1)));
+    const rows = records.slice(1);
+    const missingByColumn = {};
+    const numericColumns = [];
+    for (let c = 0; c < headers.length; c++) {
+        const values = rows.map(record => String(record[c] ?? '').trim());
+        missingByColumn[headers[c]] = values.filter(value => !value).length;
+        const numeric = values.map((value, index) => ({ value: Number(value), index })).filter(item => values[item.index] !== '' && Number.isFinite(item.value));
+        if (numeric.length >= 2) {
+            const nums = numeric.map(item => item.value);
+            const mean = nums.reduce((sum, value) => sum + value, 0) / nums.length;
+            const min = Math.min(...nums);
+            const max = Math.max(...nums);
+            const xMean = numeric.reduce((sum, item) => sum + item.index, 0) / numeric.length;
+            const yMean = mean;
+            let numerator = 0, denominator = 0;
+            for (const item of numeric) {
+                numerator += (item.index - xMean) * (item.value - yMean);
+                denominator += (item.index - xMean) ** 2;
+            }
+            const slope = denominator ? numerator / denominator : 0;
+            numericColumns.push({
+                name: headers[c],
+                count: numeric.length,
+                mean: Number(mean.toFixed(4)),
+                min,
+                max,
+                trend: Math.abs(slope) < 0.000001 ? 'stable' : (slope > 0 ? 'increasing' : 'decreasing'),
+                linear_slope_per_row: Number(slope.toFixed(6))
+            });
+        }
+    }
+    const summary = {
+        row_count: rows.length,
+        column_count: headers.length,
+        columns: headers,
+        missing_values: missingByColumn,
+        numeric_columns: numericColumns
+    };
+    let insight = 'Estadísticas descriptivas calculadas. No hay un proveedor de lenguaje disponible para generar comentarios adicionales.';
+    let provider = null;
+    let model = null;
+    try {
+        const result = await afGenerate(env, [], 'Analiza estas estadísticas de un CSV. Explica patrones, valores faltantes y límites. No inventes causas ni predicciones; distingue correlación de causalidad y señala si la muestra es pequeña.\n\nESTADÍSTICAS:\n' + JSON.stringify(summary), 'THINK', { web: false, maxOutputTokens: 1400 });
+        insight = result.text;
+        provider = result.provider;
+        model = result.model;
+    } catch (_) {}
+    await afLogMetric(env, { request: true, mode: 'DATA' });
+    return jsonResponse({ ok: true, analysis: summary, insight, provider, model, note: 'Análisis descriptivo; las tendencias lineales no son una predicción ni una garantía de resultados futuros.' });
+}
+
+async function handleAirFlowAgentTasksV1(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    const safe = await hashKey(String(auth.user.email || '').toLowerCase());
+    const key = 'af_agent_tasks_' + safe;
+    const lockName = 'af-agent-tasks:' + safe;
+
+    if (request.method === 'GET') {
+        const tasks = await env.STATS.get(key, 'json') || [];
+        return jsonResponse({ tasks: tasks.slice(0, 30) });
+    }
+
+    if (request.method === 'DELETE') {
+        const id = String(new URL(request.url).searchParams.get('id') || '');
+        if (!id || id.length > 80) return jsonResponse({ error: 'ID de tarea no válido.' }, 400);
+        try {
+            const outcome = await withKVLock(env, lockName, async () => {
+                // Re-read only after acquiring the lock: concurrent run/cancel requests
+                // must observe the state committed by the previous mutation.
+                const tasks = await env.STATS.get(key, 'json') || [];
+                const task = tasks.find(item => item.id === id);
+                if (!task) return { status: 404, error: 'Tarea no encontrada.' };
+                if (task.status !== 'planned') return { status: 409, error: 'Solo puedes cancelar tareas que todavía no se han ejecutado.' };
+                const cancelled = { ...task, status: 'cancelled', updated_at: new Date().toISOString() };
+                const next = tasks.map(item => item.id === id ? cancelled : item);
+                await env.STATS.put(key, JSON.stringify(next), { expirationTtl: AF_MEMORY_TTL });
+                return { status: 200, task: cancelled };
+            });
+            if (outcome.error) return jsonResponse({ error: outcome.error }, outcome.status);
+            return jsonResponse({ ok: true, task: outcome.task });
+        } catch (error) {
+            console.error('Air Flow Agent task cancellation lock failed:', String(error?.message || error).slice(0, 120));
+            return jsonResponse({ error: 'No se pudo bloquear la tarea de forma segura. Inténtalo de nuevo.' }, 503);
+        }
+    }
+
+    if (request.method !== 'POST') return jsonResponse({ error: 'Método no permitido' }, 405);
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'JSON inválido' }, 400); }
+    const action = String(body?.action || 'create');
+
+    if (action === 'create') {
+        if (!(await afRateLimit(env, request, auth.user.email, 'agent'))) return jsonResponse({ error: 'Límite del agente alcanzado.' }, 429);
+        const goal = String(body?.goal || '').trim().slice(0, 4000);
+        if (!goal) return jsonResponse({ error: 'Falta el objetivo.' }, 400);
+        const planRequest = new Request(new URL('/air-flow/agent', request.url), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Cookie: request.headers.get('Cookie') || '' },
+            body: JSON.stringify({ goal, approve: false })
+        });
+        const planResponse = await handleAirFlowAgentV11(env, planRequest);
+        const planBody = await planResponse.json().catch(() => ({}));
+        if (!planResponse.ok) return jsonResponse({ error: planBody.error || 'No se pudo preparar el plan.' }, planResponse.status);
+        const task = {
+            id: crypto.randomUUID(),
+            goal,
+            plan: Array.isArray(planBody.plan) ? planBody.plan : [],
+            status: 'planned',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            result_summary: null
+        };
+        try {
+            await withKVLock(env, lockName, async () => {
+                const tasks = await env.STATS.get(key, 'json') || [];
+                await env.STATS.put(key, JSON.stringify([task, ...tasks].slice(0, 30)), { expirationTtl: AF_MEMORY_TTL });
+            });
+            return jsonResponse({ ok: true, task });
+        } catch (error) {
+            console.error('Air Flow Agent task create lock failed:', String(error?.message || error).slice(0, 120));
+            return jsonResponse({ error: 'No se pudo guardar la tarea de forma segura. Inténtalo de nuevo.' }, 503);
+        }
+    }
+
+    if (action !== 'run') return jsonResponse({ error: 'Acción de tarea no válida.' }, 400);
+    const id = String(body?.id || '');
+    if (!id || id.length > 80) return jsonResponse({ error: 'ID de tarea no válido.' }, 400);
+    if (body?.confirmed !== true) return jsonResponse({ error: 'Confirma expresamente la ejecución de esta tarea.' }, 428);
+
+    let running;
+    try {
+        const claim = await withKVLock(env, lockName, async () => {
+            const tasks = await env.STATS.get(key, 'json') || [];
+            const task = tasks.find(item => item.id === id);
+            if (!task) return { status: 404, error: 'Tarea no encontrada.' };
+            if (task.status !== 'planned') return { status: 409, error: 'La tarea ya no está pendiente.' };
+            const claimed = { ...task, status: 'running', updated_at: new Date().toISOString() };
+            const next = tasks.map(item => item.id === id ? claimed : item);
+            await env.STATS.put(key, JSON.stringify(next), { expirationTtl: AF_MEMORY_TTL });
+            return { status: 200, task: claimed };
+        });
+        if (claim.error) return jsonResponse({ error: claim.error }, claim.status);
+        running = claim.task;
+    } catch (error) {
+        console.error('Air Flow Agent task claim lock failed:', String(error?.message || error).slice(0, 120));
+        return jsonResponse({ error: 'No se pudo reclamar la tarea de forma segura. Inténtalo de nuevo.' }, 503);
+    }
+
+    // The distributed lock is deliberately released before running the potentially
+    // slow Agent request. The persisted "running" claim prevents a second execution.
+    try {
+        const delegatedRequest = new Request(new URL('/air-flow/agent', request.url), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Cookie: request.headers.get('Cookie') || '' },
+            body: JSON.stringify({ goal: running.goal, approve: true })
+        });
+        const response = await handleAirFlowAgentV11(env, delegatedRequest);
+        const result = await response.json().catch(() => ({}));
+        const status = response.ok && result.status === 'completed' ? 'completed' : 'failed';
+        const completed = {
+            ...running,
+            status,
+            updated_at: new Date().toISOString(),
+            result_summary: Array.isArray(result.results) ? result.results.map(item => ({
+                id: String(item.id || ''),
+                status: String(item.status || ''),
+                message: String(item.message || item.output || '').slice(0, 800)
+            })) : []
+        };
+        await withKVLock(env, lockName, async () => {
+            const tasks = await env.STATS.get(key, 'json') || [];
+            const current = tasks.find(item => item.id === id);
+            if (!current || current.status !== 'running') return;
+            await env.STATS.put(key, JSON.stringify(tasks.map(item => item.id === id ? completed : item)), { expirationTtl: AF_MEMORY_TTL });
+        });
+        return jsonResponse({ task: completed, result }, response.status);
+    } catch (error) {
+        try {
+            await withKVLock(env, lockName, async () => {
+                const tasks = await env.STATS.get(key, 'json') || [];
+                const current = tasks.find(item => item.id === id);
+                if (!current || current.status !== 'running') return;
+                const failed = { ...current, status: 'failed', updated_at: new Date().toISOString(), result_summary: [] };
+                await env.STATS.put(key, JSON.stringify(tasks.map(item => item.id === id ? failed : item)), { expirationTtl: AF_MEMORY_TTL });
+            });
+        } catch (lockError) {
+            console.error('Air Flow Agent task failure state lock failed:', String(lockError?.message || lockError).slice(0, 120));
+        }
+        console.error('Air Flow Agent task failed:', String(error?.message || error).slice(0, 120));
+        return jsonResponse({ error: 'No se pudo completar la tarea.' }, 502);
+    }
+}
+
+async function handleAirFlowFileDeleteV1(env, request) {
+    const auth = await requireAuth(env, request);
+    if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+    if (request.method !== 'DELETE') return jsonResponse({ error: 'Método no permitido' }, 405);
+    const id = new URL(request.url).pathname.split('/').pop() || '';
+    if (!/^[a-f0-9-]{8,80}$/i.test(id)) return jsonResponse({ error: 'ID de archivo inválido.' }, 400);
+    const owner = await hashKey(String(auth.user.email || '').toLowerCase());
+    const indexKey = 'af_files_' + owner;
+    const index = await env.STATS.get(indexKey, 'json') || [];
+    const exists = index.some(item => item.id === id);
+    if (!exists) return jsonResponse({ error: 'Archivo no encontrado.' }, 404);
+    await env.STATS.delete('af_file_' + owner + '_' + id);
+    const next = index.filter(item => item.id !== id);
+    await env.STATS.put(indexKey, JSON.stringify(next), { expirationTtl: AF_MEMORY_TTL });
+    return jsonResponse({ ok: true, deleted: true, files_remaining: next.length });
+}
+
+
 async function handleAirFlowStatusV11(env, request) {
     const auth = await requireAuth(env, request);
     if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
     return jsonResponse({
         online: !!(env.GEMINI_API_KEY || env.OPENROUTER_API_KEY),
-        providers: { gemini: !!env.GEMINI_API_KEY, openrouter: !!env.OPENROUTER_API_KEY },
+        providers: { gemini: !!env.GEMINI_API_KEY, openrouter: !!env.OPENROUTER_API_KEY, workers_ai: !!env.AI },
         models: { gemini: env.GEMINI_MODEL || AF_GEMINI_MODEL_DEFAULT, openrouter: env.OPENROUTER_MODEL || AF_OPENROUTER_MODEL_DEFAULT, live: env.GEMINI_LIVE_MODEL || AF_LIVE_MODEL_DEFAULT, image: env.GEMINI_IMAGE_MODEL || AF_IMAGE_MODEL_DEFAULT },
-        capabilities: ['chat','router','fallback','web_search','research','vision','ocr','files','memory','conversations','agent_planner','safe_artifacts','image_generation','live_tokens','permissions','admin_metrics','personality_lab']
+        capabilities: ['chat','router','fallback','web_search','research','vision','ocr','files','file_delete','memory','conversations','agent_planner','persistent_agent_tasks','safe_artifacts','image_generation','audio_transcription','speech_synthesis','video_understanding','csv_analysis','live_voice','live_transcription','permissions','admin_metrics','personality_lab']
     });
 }
 
@@ -5915,10 +6467,12 @@ async function handleAirFlowSecurityV11(env, request) {
 }
 
 
-const AF_APP_JS = "(function(){\n'use strict';\nvar state={mode:'QUICK',history:[],busy:false,filePurpose:'files',liveSocket:null,audioContext:null,nextAudioTime:0,conversations:[],conversationId:null,model:'',micStream:null,micContext:null,micSource:null,micProcessor:null,micGain:null};\nvar $=function(id){return document.getElementById(id)};\nvar messages=$('messages'), input=$('input'), send=$('send'), file=$('file'), overlay=$('overlay'), drawer=$('drawer'), recents=$('recents'), sidebar=$('sidebar');\nfunction esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML.replace(/\\\"/g,'&quot;').replace(/'/g,'&#39;');}\nfunction safeUrl(url){try{var u=new URL(url,location.origin);return ['http:','https:'].indexOf(u.protocol)>=0?u.href:null;}catch(e){return null;}}\nfunction markdown(text){\n  var raw=String(text||'').replace(/\\r\\n/g,'\\n');\n  var stash=[];\n  raw=raw.replace(/```([\\w-]+)?\\n([\\s\\S]*?)```/g,function(_,lang,code){\n    var html='<pre><button class=\"code-copy\" data-code=\"'+esc(code)+'\">Copiar</button><code>'+esc(code)+'</code></pre>';\n    var i=stash.push(html)-1;\n    return '\\u0000CODE'+i+'\\u0000';\n  });\n  raw=esc(raw);\n  raw=raw.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^)]+)\\)/g,function(_,label,url){\n    var u=safeUrl(url);\n    return u?'<a href=\"'+esc(u)+'\" target=\"_blank\" rel=\"noopener noreferrer\">'+label+'</a>':label;\n  });\n  raw=raw.replace(/(https?:\\/\\/[^\\s<]+)/g,function(_,url){\n    var u=safeUrl(url);\n    return u?'<a href=\"'+esc(u)+'\" target=\"_blank\" rel=\"noopener noreferrer\">'+esc(url)+'</a>':esc(url);\n  });\n  raw=raw.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>')\n         .replace(/`([^`]+)`/g,'<code class=\"inline-code\">$1</code>');\n  raw=raw.replace(/^###\\s+(.+)$/gm,'<h4>$1</h4>')\n         .replace(/^##\\s+(.+)$/gm,'<h3>$1</h3>')\n         .replace(/^#\\s+(.+)$/gm,'<h2>$1</h2>');\n  raw=raw.replace(/^\\s*[-*]\\s+(.+)$/gm,'<li>$1</li>')\n         .replace(/(?:<li>[^<]*<\\/li>\\n?)+/g,function(m){return '<ul>'+m+'</ul>';});\n  raw=raw.replace(/\\n\\n/g,'</p><p>').replace(/\\n/g,'<br>');\n  raw='<p>'+raw+'</p>';\n  raw=raw.replace(/<p>\\u0000CODE(\\d+)\\u0000<\\/p>/g,function(_,i){return stash[Number(i)];});\n  raw=raw.replace(/<p><\\/p>/g,'');\n  return raw;\n}\nfunction removeEmpty(){var e=$('emptyState');if(e)e.remove();}\nfunction scrollBottom(){messages.scrollTop=messages.scrollHeight;}\nfunction addMessage(role,text,sources,actions){\n  removeEmpty();\n  var wrap=document.createElement('div');wrap.className='message '+(role==='user'?'user':'ai');\n  var avatar=document.createElement('div');avatar.className='avatar2';avatar.textContent=role==='user'?'👤':'✈';\n  var bw=document.createElement('div');bw.className='bubble-wrap';\n  var meta=document.createElement('div');meta.className='meta';meta.textContent=role==='user'?'TÚ':'AIR FLOW';\n  var bubble=document.createElement('div');bubble.className='bubble';bubble.innerHTML=role==='user'?esc(text).replace(/\\\\n/g,'<br>'):markdown(text);\n  bw.appendChild(meta);bw.appendChild(bubble);\n  if(role==='assistant'){\n    if(Array.isArray(sources)&&sources.length){var src=document.createElement('div');src.className='sources';sources.slice(0,10).forEach(function(s){var u=safeUrl(s.url);if(!u)return;var a=document.createElement('a');a.className='source';a.href=u;a.target='_blank';a.rel='noopener noreferrer';a.textContent='↗ '+(s.title||u);src.appendChild(a);});bw.appendChild(src);}\n    var act=document.createElement('div');act.className='message-actions';\n    [['copy','⧉'],['up','👍'],['down','👎'],['retry','↻']].forEach(function(it){var b=document.createElement('button');b.className='action';b.dataset.action=it[0];b.textContent=it[1];b.type='button';act.appendChild(b);});\n    bw.appendChild(act);\n  }\n  wrap.appendChild(role==='user'?bw:avatar);wrap.appendChild(role==='user'?avatar:bw);\n  messages.appendChild(wrap);scrollBottom();return wrap;\n}\nfunction thinking(){removeEmpty();var d=document.createElement('div');d.className='message ai thinking';d.id='thinking';d.innerHTML='<div class=\"avatar2\">✈</div><div class=\"bubble-wrap\"><div class=\"meta\">AIR FLOW</div><div class=\"bubble\"><span>Air Flow está pensando</span><span class=\"dots\"><i></i><i></i><i></i></span></div></div>';messages.appendChild(d);scrollBottom();return d;}\nfunction setBusy(v){state.busy=v;send.disabled=v;input.disabled=v;document.querySelectorAll('.mode-select,.chip').forEach(function(b){b.disabled=v});if(!v)input.focus();}\nasync function api(url,options){var res=await fetch(url,Object.assign({credentials:'same-origin',cache:'no-store'},options||{}));var data=await res.json().catch(function(){return {};});if(!res.ok)throw new Error(data.error||('HTTP '+res.status));return data;}\nfunction selectMode(mode){state.mode=String(mode||'QUICK').toUpperCase();document.querySelectorAll('[data-mode]').forEach(function(b){b.classList.toggle('active',b.dataset.mode===state.mode)});input.placeholder='Pregunta lo que quieras… · '+state.mode;}\nfunction clearChat(){state.history=[];state.conversationId=null;messages.innerHTML='<div class=\"empty\" id=\"emptyState\"><div class=\"empty-card\"><div class=\"empty-orb\">✈</div><h2>¿Qué hacemos hoy?</h2><p>Puedo conversar, investigar con información actual, revisar código, analizar imágenes y archivos, crear imágenes, organizar planes y ayudarte con tus proyectos.</p><div class=\"suggestions\"><button class=\"suggestion\" data-suggest=\"Investiga qué hay de nuevo hoy en tecnología.\">🌐 Investigar algo actual</button><button class=\"suggestion\" data-suggest=\"Ayúdame a corregir este código y dime qué está mal.\">💻 Revisar código</button><button class=\"suggestion\" data-suggest=\"Dame ideas de juegos y proyectos que pueda crear.\">🎮 Ideas para un proyecto</button><button class=\"suggestion\" data-suggest=\"Organiza esta idea en un plan paso a paso.\">📅 Crear un plan</button></div></div></div>';bindSuggestions();}\nasync function sendMessage(forceText){\n  if(state.busy)return;\n  var text=String(forceText==null?input.value:'').trim();\n  if(!text)return;\n  if(state.mode==='AGENT'){return runAgent(text)}\n  if(text.length>6000){showToast('El mensaje es demasiado largo.');return;}\n  input.value='';resizeInput();\n  addMessage('user',text);state.history.push({role:'user',content:text});\n  var wait=thinking();setBusy(true);\n  try{\n    var modePath='/air-flow/mode/'+String(state.mode||'QUICK').toLowerCase();\n    var d=await api(modePath,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,history:state.history.slice(0,-1),mode:state.mode,model:state.model||'',conversationId:state.conversationId||null})});\n    if(wait)wait.remove();\n    if(d.conversationId)state.conversationId=d.conversationId;\n    addMessage('assistant',d.reply||'No recibí una respuesta.',d.sources||[]);\n    state.history.push({role:'assistant',content:d.reply||''});\n    if(state.history.length>16)state.history=state.history.slice(-16);\n    $('providerLabel').textContent=(d.provider||'Air Flow')+(d.model?' · '+d.model:'');\n    $('composerInfo').textContent=(d.provider||'Air Flow')+(d.searched?' · búsqueda web':' · sesión protegida');\n    await loadRecent();\n  }catch(e){if(wait)wait.remove();addMessage('assistant','⚠️ '+(e.message||'No se pudo conectar con Air Flow.'));}\n  finally{setBusy(false);}\n}\nfunction bindSuggestions(){document.querySelectorAll('[data-suggest]').forEach(function(b){b.onclick=function(){var t=b.dataset.suggest;selectMode(t.toLowerCase().indexOf('investiga')>=0?'RESEARCH':t.toLowerCase().indexOf('código')>=0?'CODE':t.toLowerCase().indexOf('plan')>=0?'PLANNER':'QUICK');sendMessage(t)}})}\nfunction runQuick(text){selectMode(String(text).toLowerCase().indexOf('error')>=0?'CODE':'RESEARCH');sendMessage(text)}\nfunction showToast(text){var t=document.createElement('div');t.textContent=text;t.style.cssText='position:fixed;left:50%;bottom:95px;transform:translateX(-50%);z-index:300;background:#061b31;border:1px solid #198fda;color:#dff6ff;padding:10px 14px;border-radius:999px;font-size:10px;box-shadow:0 10px 35px rgba(0,0,0,.35)';document.body.appendChild(t);setTimeout(function(){t.remove()},2300)}\nfunction openDrawer(title,body){drawer.innerHTML='<div class=\"drawer-head\"><h3>'+esc(title)+'</h3><button class=\"close\" id=\"drawerClose\">×</button></div><div class=\"drawer-body\">'+body+'</div>';overlay.classList.add('show');$('drawerClose').onclick=closeDrawer;}\nfunction closeDrawer(){overlay.classList.remove('show');if(state.liveSocket){try{state.liveSocket.close()}catch(e){}state.liveSocket=null;}}\nasync function statusPanel(){try{var d=await api('/air-flow/status');openDrawer('◉ Estado de Air Flow','<div class=\"result\">Proveedor Gemini: '+(d.providers?.gemini?'✅ configurado':'❌ no configurado')+'\\\\nProveedor OpenRouter: '+(d.providers?.openrouter?'✅ configurado':'❌ no configurado')+'\\\\n\\\\nModelo principal: '+esc(d.models?.gemini||'—')+'\\\\nModelo Live: '+esc(d.models?.live||'—')+'\\\\nModelo de imágenes: '+esc(d.models?.image||'—')+'\\\\n\\\\nCapacidades: '+esc((d.capabilities||[]).join(', '))+'</div>')}catch(e){openDrawer('◉ Estado de Air Flow','<div class=\"result\">⚠️ '+esc(e.message)+'</div>')}}\nasync function loadRecent(){try{var d=await api('/air-flow/conversations');state.conversations=Array.isArray(d.conversations)?d.conversations:[];renderRecent()}catch(e){recents.innerHTML='<div style=\"padding:10px;color:#607a92;font-size:10px\">No se pudo cargar el historial: '+esc(e.message||'error')+'</div>'}}\nfunction renderRecent(){if(!state.conversations.length){recents.innerHTML='<div style=\"padding:10px;color:#607a92;font-size:10px\">Todavía no hay conversaciones.</div>';return}recents.innerHTML='';state.conversations.forEach(function(c){var b=document.createElement('div');b.className='recent';b.tabIndex=0;b.innerHTML='<span style=\"color:#4bbfff\">•</span><span style=\"min-width:0;flex:1\"><span class=\"recent-title\">'+esc(c.title||'Nueva conversación')+'</span><span class=\"recent-mode\">'+esc(c.mode||'QUICK')+'</span></span><button class=\"recent-delete\" title=\"Eliminar\" data-delete=\"'+esc(c.id||'')+'\">×</button>';b.addEventListener('click',function(e){if(e.target.dataset.delete)return;var msgs=Array.isArray(c.messages)?c.messages.slice(-16):[];state.history=msgs;state.conversationId=c.id||null;messages.innerHTML='';if(!msgs.length){clearChat();return}msgs.forEach(function(m){if(m.role==='user')addMessage('user',m.content);else addMessage('assistant',m.content)});selectMode(c.mode||'QUICK');sidebar.classList.remove('open');});b.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&!e.target.dataset.delete){e.preventDefault();b.click();}});var del=b.querySelector('[data-delete]');if(del)del.addEventListener('click',async function(e){e.stopPropagation();var id=del.dataset.delete;if(!id)return;try{await api('/air-flow/conversations?id='+encodeURIComponent(id),{method:'DELETE'});await loadRecent();}catch(err){showToast(err.message)}});recents.appendChild(b)});}\nfunction resizeInput(){input.style.height='auto';input.style.height=Math.min(input.scrollHeight,150)+'px'}\nfunction chooseFile(kind){state.filePurpose=kind;file.value='';file.removeAttribute('capture');file.accept=kind==='vision'?'image/*':'image/*,.pdf,.txt,.md,.csv,.json,.js,.ts,.html,.css,.py,.lua,.xml,.yaml,.yml,.log';if(kind==='camera'){state.filePurpose='vision';file.accept='image/*';file.setAttribute('capture','environment')}file.click()}\nfunction readFile(f){return new Promise(function(resolve,reject){var r=new FileReader();r.onload=function(){resolve(r.result)};r.onerror=function(){reject(new Error('No pude leer el archivo.'))};r.readAsDataURL(f)})}\nasync function vision(f){if(!f||!String(f.type||'').startsWith('image/')){showToast('Selecciona una imagen válida.');return}var b64=await readFile(f);openDrawer('👁 Air Flow Vision','<div class=\"result\">'+esc(f.name||'Imagen')+'</div><textarea id=\"visionPrompt\" placeholder=\"¿Qué quieres saber de la imagen?\"></textarea><button class=\"btn primary\" id=\"visionRun\">Analizar imagen</button><div id=\"visionResult\"></div>');$('visionRun').onclick=async function(){var r=$('visionResult');r.innerHTML='<div class=\"result\">Analizando…</div>';try{var d=await api('/air-flow/vision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:$('visionPrompt').value.trim()||'Analiza esta imagen y explica lo importante.',image:{data:b64,mimeType:f.type}})});r.innerHTML='<div class=\"result\">'+markdown(d.reply||'Sin resultado')+'</div>'}catch(e){r.innerHTML='<div class=\"result\">⚠️ '+esc(e.message)+'</div>'}}}\nasync function files(f){var b64=await readFile(f);openDrawer('📎 Air Flow Files','<div class=\"result\">'+esc(f.name||'Archivo')+' · '+esc(f.type||'application/octet-stream')+'</div><textarea id=\"filePrompt\" placeholder=\"¿Qué quieres que haga con el archivo?\"></textarea><button class=\"btn primary\" id=\"fileRun\">Analizar archivo</button><div id=\"fileResult\"></div>');$('fileRun').onclick=async function(){var r=$('fileResult');r.innerHTML='<div class=\"result\">Analizando…</div>';try{var d=await api('/air-flow/file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:$('filePrompt').value.trim()||'Resume y analiza este archivo.',file:{data:b64,mimeType:f.type||'application/octet-stream',name:f.name||'archivo'}})});r.innerHTML='<div class=\"result\">'+markdown(d.reply||'Sin resultado')+'</div>'}catch(e){r.innerHTML='<div class=\"result\">⚠️ '+esc(e.message)+'</div>'}}}\nasync function memoryPanel(){try{var d=await api('/air-flow/memory');var m=d.memory||{};openDrawer('🧠 Memoria de Air Flow','<div class=\"result\">'+esc(JSON.stringify(m,null,2))+'</div><button class=\"btn\" id=\"clearMemory\">🗑 Borrar memoria permanente</button>');$('clearMemory').onclick=async function(){try{await api('/air-flow/memory',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'all'})});showToast('Memoria eliminada.');closeDrawer()}catch(e){showToast(e.message)}}}catch(e){openDrawer('🧠 Memoria','<div class=\"result\">⚠️ '+esc(e.message)+'</div>')}}\nasync function runAgent(goal){var wait=thinking();setBusy(true);try{var d=await api('/air-flow/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal:goal})});if(wait)wait.remove();addMessage('assistant',(d.plan||[]).map(function(x,i){return (i+1)+'. '+x.label}).join('\\\\n')||'No se pudo crear un plan.');openDrawer('🤖 Air Flow Agent','<div class=\"result\">'+esc(JSON.stringify(d.plan||[],null,2))+'</div><button class=\"btn primary\" id=\"approveAgent\">✅ Ejecutar plan</button>');$('approveAgent').onclick=async function(){try{var r=await api('/air-flow/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal:goal,approve:true})});openDrawer('🤖 Resultado del Agent','<div class=\"result\">'+esc(JSON.stringify(r.results||r,null,2))+'</div>')}catch(e){showToast(e.message)}}}catch(e){if(wait)wait.remove();addMessage('assistant','⚠️ '+e.message)}finally{setBusy(false)}}\nasync function renderGeneratedImage(r,d){\n  r.innerHTML='';\n  if(d.provider==='openrouter'){\n    var note=document.createElement('div');note.className='result';\n    note.textContent='OpenRouter · '+(d.model||'modelo')+(typeof d.costUsd==='number'?' · coste informado: US$'+d.costUsd.toFixed(4):' · generación completada');r.appendChild(note);\n  }else if(d.provider==='stablehorde'){\n    var note2=document.createElement('div');note2.className='result';\n    note2.textContent='Stable Horde · comunidad de voluntarios · el tiempo de generación depende de la cola.';r.appendChild(note2);\n  }\n  var imageSource='';\n  if(d.imageUrl){\n    imageSource=String(d.imageUrl);\n    if(!/^https:\\/\\//i.test(imageSource))throw new Error('Stable Horde devolvió una URL de imagen no segura.');\n  }else if(d.data){\n    imageSource='data:'+(d.mimeType||'image/png')+';base64,'+d.data;\n  }else{\n    throw new Error('No se recibió la imagen.');\n  }\n  var img=document.createElement('img');img.className='artifact-img';img.alt='Imagen generada por Air Flow';img.loading='lazy';img.src=imageSource;r.appendChild(img);\n  if(d.imageUrl){\n    var link=document.createElement('a');link.href=imageSource;link.target='_blank';link.rel='noopener noreferrer';link.className='btn';link.textContent='Abrir o guardar imagen';link.style.display='inline-block';r.appendChild(link);\n  }\n}\nasync function pollStableHorde(requestId,statusEl){\n  for(var i=0;i<100;i++){\n    await new Promise(function(resolve){setTimeout(resolve,3000)});\n    if(!statusEl||!statusEl.isConnected)return;\n    try{\n      var d=await api('/air-flow/create/image/status?id='+encodeURIComponent(requestId));\n      if(d.pending){\n        statusEl.textContent=d.message||'Stable Horde está procesando la imagen…';\n        continue;\n      }\n      if(d.imageUrl){\n        renderGeneratedImage(statusEl.parentElement,d);\n        return;\n      }\n      throw new Error('Stable Horde no devolvió una imagen.');\n    }catch(e){\n      if(statusEl&&statusEl.isConnected)statusEl.textContent='⚠️ '+(e.message||'No se pudo consultar la cola.');\n      return;\n    }\n  }\n  if(!statusEl||!statusEl.isConnected)return;\n  statusEl.textContent='La generación sigue en cola. Pulsa “Seguir comprobando” para consultar de nuevo.';\n  var retry=document.createElement('button');retry.className='btn';retry.type='button';retry.textContent='Seguir comprobando';\n  retry.onclick=function(){retry.remove();pollStableHorde(requestId,statusEl)};\n  statusEl.parentElement.appendChild(retry);\n}\nfunction createImagePanel(){\n  openDrawer('🎨 Crear imagen','<textarea id=\"createPrompt\" placeholder=\"Describe la imagen que quieres crear...\"></textarea><div class=\"grid2\"><button class=\"btn primary\" id=\"createRun\">Generar</button><button class=\"btn\" id=\"createClear\">Limpiar</button></div><div id=\"createResult\"></div>');\n  $('createClear').onclick=function(){$('createPrompt').value=''};\n  $('createRun').onclick=async function(){\n    var p=$('createPrompt').value.trim(),r=$('createResult'),run=$('createRun');\n    if(!p){r.innerHTML='<div class=\"result\">Escribe una descripción primero.</div>';return}\n    run.disabled=true;r.innerHTML='<div class=\"result\">Preparando la generación…</div>';\n    try{\n      var d=await api('/air-flow/create/image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p})});\n      if(d.pending&&d.provider==='stablehorde'&&d.requestId){\n        r.innerHTML='<div class=\"result\" id=\"stableHordeStatus\">Solicitud aceptada. Consultando la cola de Stable Horde…</div>';\n        pollStableHorde(d.requestId,$('stableHordeStatus'));\n        return;\n      }\n      renderGeneratedImage(r,d);\n    }catch(e){\n      r.innerHTML='<div class=\"result\">⚠️ '+esc(e.message)+'</div>';\n    }finally{\n      run.disabled=false;\n    }\n  };\n}\nasync function researchPanel(){var q=String(input.value||'').trim();if(q){selectMode('RESEARCH');return sendMessage(q)}openDrawer('🌐 Investigar','<textarea id=\"researchQ\" placeholder=\"¿Qué quieres investigar en la web?\"></textarea><button class=\"btn primary\" id=\"researchRun\">Investigar</button><div id=\"researchResult\"></div>');$('researchRun').onclick=async function(){var q=$('researchQ').value.trim();var r=$('researchResult');if(!q){r.innerHTML='<div class=\"result\">Escribe una consulta.</div>';return}r.innerHTML='<div class=\"result\">Investigando…</div>';try{var d=await api('/air-flow/research',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});r.innerHTML='<div class=\"result\">'+markdown(d.answer||'Sin resultado')+'</div>';if(Array.isArray(d.sources)&&d.sources.length){var links=document.createElement('div');links.className='sources';d.sources.slice(0,10).forEach(function(s){var u=safeUrl(s.url);if(!u)return;var a=document.createElement('a');a.className='source';a.href=u;a.target='_blank';a.rel='noopener noreferrer';a.textContent='↗ '+(s.title||u);links.appendChild(a)});r.appendChild(links)}}catch(e){r.innerHTML='<div class=\"result\">⚠️ '+esc(e.message)+'</div>'}}}\nfunction pcmPlay(base64){try{var raw=atob(base64),len=raw.length,bytes=new Uint8Array(len);for(var i=0;i<len;i++)bytes[i]=raw.charCodeAt(i);var samples=new Int16Array(bytes.buffer);var ctx=state.audioContext||(state.audioContext=new (window.AudioContext||window.webkitAudioContext)({sampleRate:24000}));if(ctx.state==='suspended')ctx.resume();var buffer=ctx.createBuffer(1,samples.length,24000),data=buffer.getChannelData(0);for(var j=0;j<samples.length;j++)data[j]=samples[j]/32768;var src=ctx.createBufferSource();src.buffer=buffer;src.connect(ctx.destination);var when=Math.max(ctx.currentTime,state.nextAudioTime||0);src.start(when);state.nextAudioTime=when+buffer.duration}catch(e){}}\nfunction stopMic(){if(state.micProcessor){try{state.micProcessor.disconnect()}catch(e){}}if(state.micSource){try{state.micSource.disconnect()}catch(e){}}if(state.micGain){try{state.micGain.disconnect()}catch(e){}}if(state.micStream){state.micStream.getTracks().forEach(function(t){t.stop()})}if(state.micContext){try{state.micContext.close()}catch(e){}}state.micStream=null;state.micContext=null;state.micSource=null;state.micProcessor=null;state.micGain=null;var b=document.getElementById('liveMic');if(b)b.textContent='🎤 Activar micrófono';}\nfunction floatTo16BitPCM(input){var out=new Int16Array(input.length);for(var i=0;i<input.length;i++){var s=Math.max(-1,Math.min(1,input[i]));out[i]=s<0?s*0x8000:s*0x7FFF;}return out;}\nfunction bytesToBase64(bytes){var chunk=0x8000,bin='';for(var i=0;i<bytes.length;i+=chunk){bin+=String.fromCharCode.apply(null,bytes.subarray(i,Math.min(i+chunk,bytes.length)));}return btoa(bin);}\nasync function startMic(){if(!state.liveSocket||state.liveSocket.readyState!==WebSocket.OPEN){showToast('Primero conecta Air Flow Live.');return}if(state.micStream){stopMic();return}if(!navigator.mediaDevices?.getUserMedia){showToast('Tu navegador no permite usar el micrófono.');return}try{state.micStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});state.micContext=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});await state.micContext.resume();state.micSource=state.micContext.createMediaStreamSource(state.micStream);state.micProcessor=state.micContext.createScriptProcessor(4096,1,1);state.micGain=state.micContext.createGain();state.micGain.gain.value=0;state.micProcessor.onaudioprocess=function(ev){if(!state.liveSocket||state.liveSocket.readyState!==WebSocket.OPEN)return;var pcm=floatTo16BitPCM(ev.inputBuffer.getChannelData(0));state.liveSocket.send(JSON.stringify({realtimeInput:{audio:{data:bytesToBase64(new Uint8Array(pcm.buffer)),mimeType:'audio/pcm;rate=16000'}}}));};state.micSource.connect(state.micProcessor);state.micProcessor.connect(state.micGain);state.micGain.connect(state.micContext.destination);var b=document.getElementById('liveMic');if(b)b.textContent='⏹ Detener micrófono';var st=document.getElementById('liveStatus');if(st)st.textContent='🟢 Micrófono activo · habla con Air Flow';}catch(e){stopMic();showToast('No pude acceder al micrófono: '+(e.message||'permiso denegado'));}}\nfunction stopLive(){stopMic();if(state.liveSocket){try{state.liveSocket.close()}catch(e){}}state.liveSocket=null;state.nextAudioTime=0;}\nasync function livePanel(){try{var d=await api('/air-flow/live/token',{method:'POST'});if(!d.token)throw new Error('El servidor no devolvió un token Live.');openDrawer('🎙 Air Flow Live','<div id=\"liveStatus\" class=\"result\">Conectando…</div><textarea id=\"liveInput\" placeholder=\"Escribe mientras la sesión Live está activa…\"></textarea><div class=\"grid2\"><button class=\"btn primary\" id=\"liveSend\" disabled>Enviar</button><button class=\"btn\" id=\"liveMic\">🎤 Activar micrófono</button></div><button class=\"btn\" id=\"liveStop\">Cerrar sesión</button><div id=\"liveOutput\" class=\"result\">La respuesta de voz aparecerá aquí.</div>');$('liveStop').onclick=function(){stopLive();closeDrawer()};$('liveMic').onclick=startMic;var base=d.websocket||'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained';var ws=base+(base.indexOf('?')>=0?'&':'?')+'access_token='+encodeURIComponent(d.token);state.liveSocket=new WebSocket(ws);state.liveSocket.onopen=function(){var st=$('liveStatus');if(st)st.textContent='🟢 Live conectado';try{state.liveSocket.send(JSON.stringify({setup:{model:'models/'+(d.model||'gemini-3.8-live'),generationConfig:{responseModalities:['AUDIO'],outputAudioTranscription:{},sessionResumption:{}}}}))}catch(e){}};state.liveSocket.onmessage=function(ev){try{var x=JSON.parse(ev.data),c=x.serverContent||{};if(x.setupComplete){if($('liveStatus'))$('liveStatus').textContent='🟢 Live listo';}if(c.inputTranscription?.text){$('liveOutput').textContent+='\\\\nTÚ: '+c.inputTranscription.text}if(c.outputTranscription?.text){$('liveOutput').textContent+='\\\\nAIR FLOW: '+c.outputTranscription.text}for(var p of ((c.modelTurn&&c.modelTurn.parts)||[])){var b=p&&p.inlineData;if(b?.data)pcmPlay(b.data)}}catch(e){}};state.liveSocket.onerror=function(){if($('liveStatus'))$('liveStatus').textContent='⚠️ Error de conexión Live';};state.liveSocket.onclose=function(){if($('liveStatus'))$('liveStatus').textContent='⚪ Live desconectado';};$('liveSend').disabled=false;$('liveSend').onclick=function(){var v=$('liveInput').value.trim();if(!v||!state.liveSocket||state.liveSocket.readyState!==WebSocket.OPEN)return;state.liveSocket.send(JSON.stringify({realtimeInput:{text:v}}));$('liveOutput').textContent+='\\\\nTÚ: '+v;$('liveInput').value='';}}\ncatch(e){openDrawer('🎙 Air Flow Live','<div class=\"result\">⚠️ '+esc(e.message||'Live no está disponible.')+'</div>')}}\nfunction navAction(name){if(name==='chat'){closeDrawer();sidebar.classList.remove('open');return}if(name==='research')return researchPanel();if(name==='vision')return chooseFile('vision');if(name==='files')return chooseFile('files');if(name==='live')return livePanel();if(name==='create')return createImagePanel();if(name==='memory')return memoryPanel();if(name==='agent'){input.value='';selectMode('AGENT');input.focus();return}}\nfunction retryLast(){var last=null;for(var i=state.history.length-1;i>=0;i--){if(state.history[i].role==='user'){last=state.history[i].content;break}}if(!last){showToast('No hay un mensaje para repetir.');return}var idx=state.history.map(function(x){return x.content}).lastIndexOf(last);if(idx>=0)state.history=state.history.slice(0,idx);var msgs=Array.from(messages.querySelectorAll('.message'));var lastUser=-1;for(var k=msgs.length-1;k>=0;k--){if(msgs[k].classList.contains('user')){lastUser=k;break}}if(lastUser>=0)messages.querySelectorAll('.message').forEach(function(m,i){if(i>=lastUser)m.remove()});sendMessage(last)}\ndocument.querySelectorAll('[data-mode]').forEach(function(b){b.addEventListener('click',function(){selectMode(b.dataset.mode)})});\ndocument.querySelectorAll('[data-nav]').forEach(function(b){b.addEventListener('click',function(){navAction(b.dataset.nav)})});\ndocument.querySelectorAll('[data-suggest]').forEach(function(b){b.addEventListener('click',function(){var t=b.dataset.suggest;selectMode(t.toLowerCase().indexOf('investiga')>=0?'RESEARCH':t.toLowerCase().indexOf('código')>=0?'CODE':t.toLowerCase().indexOf('plan')>=0?'PLANNER':'QUICK');sendMessage(t)})});\n$('newChat').onclick=clearChat;$('homeBtn').onclick=function(){location.href='/home'};$('profileBtn').onclick=function(){location.href='/profile'};$('statusBtn').onclick=statusPanel;$('voiceBtn').onclick=livePanel;$('attachBtn').onclick=function(){chooseFile('files')};$('menuBtn').onclick=function(){sidebar.classList.toggle('open')};$('themeBtn').onclick=function(){document.body.classList.toggle('light');document.body.style.background=document.body.classList.contains('light')?'#edf6fc':''};\ninput.addEventListener('input',resizeInput);input.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}});send.onclick=function(){sendMessage()};\n$('globalSearch').addEventListener('keydown',async function(e){if(e.key!=='Enter')return;e.preventDefault();var q=this.value.trim();if(!q)return;this.value='';selectMode('RESEARCH');sendMessage(q)});\nmessages.addEventListener('click',function(e){var btn=e.target.closest&&e.target.closest('[data-action]');if(!btn)return;var action=btn.dataset.action;var bubble=btn.closest('.message')?.querySelector('.bubble');if(action==='copy'){navigator.clipboard?.writeText(bubble?.innerText||'').then(function(){showToast('Copiado al portapapeles.')})}else if(action==='up'||action==='down'){api('/air-flow/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({feedback:action,mode:state.mode})}).catch(function(){});showToast(action==='up'?'Gracias por la valoración 👍':'Gracias por avisar 👌')}else if(action==='retry'){retryLast()}});\nmessages.addEventListener('click',function(e){var c=e.target.closest&&e.target.closest('.code-copy');if(!c)return;var code=c.parentElement?.querySelector('code')?.innerText||'';navigator.clipboard?.writeText(code).then(function(){c.textContent='Copiado'})});\nfile.addEventListener('change',async function(){var f=file.files?.[0];file.value='';if(!f)return;try{if(state.filePurpose==='vision')await vision(f);else await files(f)}catch(e){showToast(e.message)}});\noverlay.addEventListener('click',function(e){if(e.target===overlay)closeDrawer()});\nasync function loadModels(){try{var d=await api('/air-flow/models');var sel=$('modelSel');if(!sel||!d.models||!d.models.length)return;var saved='';try{saved=localStorage.getItem('af-model')||''}catch(e){}sel.innerHTML='';d.models.forEach(function(m){var o=document.createElement('option');o.value=m.id;o.textContent=m.label;sel.appendChild(o)});state.model=d.models.some(function(m){return m.id===saved})?saved:(d.default||d.models[0].id);sel.value=state.model;sel.onchange=function(){state.model=sel.value;try{localStorage.setItem('af-model',sel.value)}catch(e){}showToast('Modelo: '+sel.options[sel.selectedIndex].text)}}catch(e){}}\nbindSuggestions();resizeInput();loadRecent();loadModels();\n})();";
+const AF_APP_JS = "(function(){\n'use strict';\nvar state={mode:'QUICK',history:[],busy:false,filePurpose:'files',liveSocket:null,audioContext:null,nextAudioTime:0,conversations:[],conversationId:null,model:'',micStream:null,micContext:null,micSource:null,micProcessor:null,micGain:null};\nvar $=function(id){return document.getElementById(id)};\nvar messages=$('messages'), input=$('input'), send=$('send'), file=$('file'), overlay=$('overlay'), drawer=$('drawer'), recents=$('recents'), sidebar=$('sidebar');\nfunction esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML.replace(/\\\"/g,'&quot;').replace(/'/g,'&#39;');}\nfunction safeUrl(url){try{var u=new URL(url,location.origin);return ['http:','https:'].indexOf(u.protocol)>=0?u.href:null;}catch(e){return null;}}\nfunction markdown(text){\n  var raw=String(text||'').replace(/\\r\\n/g,'\\n');\n  var stash=[];\n  raw=raw.replace(/```([\\w-]+)?\\n([\\s\\S]*?)```/g,function(_,lang,code){\n    var html='<pre><button class=\"code-copy\" data-code=\"'+esc(code)+'\">Copiar</button><code>'+esc(code)+'</code></pre>';\n    var i=stash.push(html)-1;\n    return '\\u0000CODE'+i+'\\u0000';\n  });\n  raw=esc(raw);\n  raw=raw.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^)]+)\\)/g,function(_,label,url){\n    var u=safeUrl(url);\n    return u?'<a href=\"'+esc(u)+'\" target=\"_blank\" rel=\"noopener noreferrer\">'+label+'</a>':label;\n  });\n  raw=raw.replace(/(https?:\\/\\/[^\\s<]+)/g,function(_,url){\n    var u=safeUrl(url);\n    return u?'<a href=\"'+esc(u)+'\" target=\"_blank\" rel=\"noopener noreferrer\">'+esc(url)+'</a>':esc(url);\n  });\n  raw=raw.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>')\n         .replace(/`([^`]+)`/g,'<code class=\"inline-code\">$1</code>');\n  raw=raw.replace(/^###\\s+(.+)$/gm,'<h4>$1</h4>')\n         .replace(/^##\\s+(.+)$/gm,'<h3>$1</h3>')\n         .replace(/^#\\s+(.+)$/gm,'<h2>$1</h2>');\n  raw=raw.replace(/^\\s*[-*]\\s+(.+)$/gm,'<li>$1</li>')\n         .replace(/(?:<li>[^<]*<\\/li>\\n?)+/g,function(m){return '<ul>'+m+'</ul>';});\n  raw=raw.replace(/\\n\\n/g,'</p><p>').replace(/\\n/g,'<br>');\n  raw='<p>'+raw+'</p>';\n  raw=raw.replace(/<p>\\u0000CODE(\\d+)\\u0000<\\/p>/g,function(_,i){return stash[Number(i)];});\n  raw=raw.replace(/<p><\\/p>/g,'');\n  return raw;\n}\nfunction removeEmpty(){var e=$('emptyState');if(e)e.remove();}\nfunction scrollBottom(){messages.scrollTop=messages.scrollHeight;}\nfunction addMessage(role,text,sources,actions){\n  removeEmpty();\n  var wrap=document.createElement('div');wrap.className='message '+(role==='user'?'user':'ai');\n  var avatar=document.createElement('div');avatar.className='avatar2';avatar.textContent=role==='user'?'👤':'✈';\n  var bw=document.createElement('div');bw.className='bubble-wrap';\n  var meta=document.createElement('div');meta.className='meta';meta.textContent=role==='user'?'TÚ':'AIR FLOW';\n  var bubble=document.createElement('div');bubble.className='bubble';bubble.innerHTML=role==='user'?esc(text).replace(/\\\\n/g,'<br>'):markdown(text);\n  bw.appendChild(meta);bw.appendChild(bubble);\n  if(role==='assistant'){\n    if(Array.isArray(sources)&&sources.length){var src=document.createElement('div');src.className='sources';sources.slice(0,10).forEach(function(s){var u=safeUrl(s.url);if(!u)return;var a=document.createElement('a');a.className='source';a.href=u;a.target='_blank';a.rel='noopener noreferrer';a.textContent='↗ '+(s.title||u);src.appendChild(a);});bw.appendChild(src);}\n    var act=document.createElement('div');act.className='message-actions';\n    [['copy','⧉'],['up','👍'],['down','👎'],['retry','↻']].forEach(function(it){var b=document.createElement('button');b.className='action';b.dataset.action=it[0];b.textContent=it[1];b.type='button';act.appendChild(b);});\n    bw.appendChild(act);\n  }\n  wrap.appendChild(role==='user'?bw:avatar);wrap.appendChild(role==='user'?avatar:bw);\n  messages.appendChild(wrap);scrollBottom();return wrap;\n}\nfunction thinking(){removeEmpty();var d=document.createElement('div');d.className='message ai thinking';d.id='thinking';d.innerHTML='<div class=\"avatar2\">✈</div><div class=\"bubble-wrap\"><div class=\"meta\">AIR FLOW</div><div class=\"bubble\"><span>Air Flow está pensando</span><span class=\"dots\"><i></i><i></i><i></i></span></div></div>';messages.appendChild(d);scrollBottom();return d;}\nfunction setBusy(v){state.busy=v;send.disabled=v;input.disabled=v;document.querySelectorAll('.mode-select,.chip').forEach(function(b){b.disabled=v});if(!v)input.focus();}\nasync function api(url,options){var res=await fetch(url,Object.assign({credentials:'same-origin',cache:'no-store'},options||{}));var data=await res.json().catch(function(){return {};});if(!res.ok)throw new Error(data.error||('HTTP '+res.status));return data;}\nfunction selectMode(mode){state.mode=String(mode||'QUICK').toUpperCase();document.querySelectorAll('[data-mode]').forEach(function(b){b.classList.toggle('active',b.dataset.mode===state.mode)});input.placeholder='Pregunta lo que quieras… · '+state.mode;}\nfunction clearChat(){state.history=[];state.conversationId=null;messages.innerHTML='<div class=\"empty\" id=\"emptyState\"><div class=\"empty-card\"><div class=\"empty-orb\">✈</div><h2>¿Qué hacemos hoy?</h2><p>Puedo conversar, investigar con información actual, revisar código, analizar imágenes y archivos, crear imágenes, organizar planes y ayudarte con tus proyectos.</p><div class=\"suggestions\"><button class=\"suggestion\" data-suggest=\"Investiga qué hay de nuevo hoy en tecnología.\">🌐 Investigar algo actual</button><button class=\"suggestion\" data-suggest=\"Ayúdame a corregir este código y dime qué está mal.\">💻 Revisar código</button><button class=\"suggestion\" data-suggest=\"Dame ideas de juegos y proyectos que pueda crear.\">🎮 Ideas para un proyecto</button><button class=\"suggestion\" data-suggest=\"Organiza esta idea en un plan paso a paso.\">📅 Crear un plan</button></div></div></div>';bindSuggestions();}\nasync function sendMessage(forceText){\n  if(state.busy)return;\n  var text=String(forceText==null?input.value:'').trim();\n  if(!text)return;\n  if(state.mode==='AGENT'){return runAgent(text)}\n  if(text.length>6000){showToast('El mensaje es demasiado largo.');return;}\n  input.value='';resizeInput();\n  addMessage('user',text);state.history.push({role:'user',content:text});\n  var wait=thinking();setBusy(true);\n  try{\n    var modePath='/air-flow/mode/'+String(state.mode||'QUICK').toLowerCase();\n    var d=await api(modePath,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,history:state.history.slice(0,-1),mode:state.mode,model:state.model||'',conversationId:state.conversationId||null})});\n    if(wait)wait.remove();\n    if(d.conversationId)state.conversationId=d.conversationId;\n    addMessage('assistant',d.reply||'No recibí una respuesta.',d.sources||[]);\n    state.history.push({role:'assistant',content:d.reply||''});\n    if(state.history.length>16)state.history=state.history.slice(-16);\n    $('providerLabel').textContent=(d.provider||'Air Flow')+(d.model?' · '+d.model:'');\n    $('composerInfo').textContent=(d.provider||'Air Flow')+(d.searched?' · búsqueda web':' · sesión protegida');\n    await loadRecent();\n  }catch(e){if(wait)wait.remove();addMessage('assistant','⚠️ '+(e.message||'No se pudo conectar con Air Flow.'));}\n  finally{setBusy(false);}\n}\nfunction bindSuggestions(){document.querySelectorAll('[data-suggest]').forEach(function(b){b.onclick=function(){var t=b.dataset.suggest;selectMode(t.toLowerCase().indexOf('investiga')>=0?'RESEARCH':t.toLowerCase().indexOf('código')>=0?'CODE':t.toLowerCase().indexOf('plan')>=0?'PLANNER':'QUICK');sendMessage(t)}})}\nfunction runQuick(text){selectMode(String(text).toLowerCase().indexOf('error')>=0?'CODE':'RESEARCH');sendMessage(text)}\nfunction showToast(text){var t=document.createElement('div');t.textContent=text;t.style.cssText='position:fixed;left:50%;bottom:95px;transform:translateX(-50%);z-index:300;background:#061b31;border:1px solid #198fda;color:#dff6ff;padding:10px 14px;border-radius:999px;font-size:10px;box-shadow:0 10px 35px rgba(0,0,0,.35)';document.body.appendChild(t);setTimeout(function(){t.remove()},2300)}\nfunction openDrawer(title,body){drawer.innerHTML='<div class=\"drawer-head\"><h3>'+esc(title)+'</h3><button class=\"close\" id=\"drawerClose\">×</button></div><div class=\"drawer-body\">'+body+'</div>';overlay.classList.add('show');$('drawerClose').onclick=closeDrawer;}\nfunction closeDrawer(){overlay.classList.remove('show');if(state.liveSocket){stopLive();}}\nasync function statusPanel(){try{var d=await api('/air-flow/status');openDrawer('◉ Estado de Air Flow','<div class=\"result\">Proveedor Gemini: '+(d.providers?.gemini?'✅ configurado':'❌ no configurado')+'\\\\nProveedor OpenRouter: '+(d.providers?.openrouter?'✅ configurado':'❌ no configurado')+'\\\\n\\\\nModelo principal: '+esc(d.models?.gemini||'—')+'\\\\nModelo Live: '+esc(d.models?.live||'—')+'\\\\nModelo de imágenes: '+esc(d.models?.image||'—')+'\\\\n\\\\nCapacidades: '+esc((d.capabilities||[]).join(', '))+'</div>')}catch(e){openDrawer('◉ Estado de Air Flow','<div class=\"result\">⚠️ '+esc(e.message)+'</div>')}}\nasync function loadRecent(){try{var d=await api('/air-flow/conversations');state.conversations=Array.isArray(d.conversations)?d.conversations:[];renderRecent()}catch(e){recents.innerHTML='<div style=\"padding:10px;color:#607a92;font-size:10px\">No se pudo cargar el historial: '+esc(e.message||'error')+'</div>'}}\nfunction renderRecent(){if(!state.conversations.length){recents.innerHTML='<div style=\"padding:10px;color:#607a92;font-size:10px\">Todavía no hay conversaciones.</div>';return}recents.innerHTML='';state.conversations.forEach(function(c){var b=document.createElement('div');b.className='recent';b.tabIndex=0;b.innerHTML='<span style=\"color:#4bbfff\">•</span><span style=\"min-width:0;flex:1\"><span class=\"recent-title\">'+esc(c.title||'Nueva conversación')+'</span><span class=\"recent-mode\">'+esc(c.mode||'QUICK')+'</span></span><button class=\"recent-delete\" title=\"Eliminar\" data-delete=\"'+esc(c.id||'')+'\">×</button>';b.addEventListener('click',function(e){if(e.target.dataset.delete)return;var msgs=Array.isArray(c.messages)?c.messages.slice(-16):[];state.history=msgs;state.conversationId=c.id||null;messages.innerHTML='';if(!msgs.length){clearChat();return}msgs.forEach(function(m){if(m.role==='user')addMessage('user',m.content);else addMessage('assistant',m.content)});selectMode(c.mode||'QUICK');sidebar.classList.remove('open');});b.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&!e.target.dataset.delete){e.preventDefault();b.click();}});var del=b.querySelector('[data-delete]');if(del)del.addEventListener('click',async function(e){e.stopPropagation();var id=del.dataset.delete;if(!id)return;try{await api('/air-flow/conversations?id='+encodeURIComponent(id),{method:'DELETE'});await loadRecent();}catch(err){showToast(err.message)}});recents.appendChild(b)});}\nfunction resizeInput(){input.style.height='auto';input.style.height=Math.min(input.scrollHeight,150)+'px'}\nfunction chooseFile(kind){state.filePurpose=kind;file.value='';file.removeAttribute('capture');file.accept=kind==='vision'?'image/*':'image/*,.pdf,.txt,.md,.csv,.json,.js,.ts,.html,.css,.py,.lua,.xml,.yaml,.yml,.log';if(kind==='camera'){state.filePurpose='vision';file.accept='image/*';file.setAttribute('capture','environment')}file.click()}\nfunction readFile(f){return new Promise(function(resolve,reject){var r=new FileReader();r.onload=function(){resolve(r.result)};r.onerror=function(){reject(new Error('No pude leer el archivo.'))};r.readAsDataURL(f)})}\nasync function vision(f){if(!f||!String(f.type||'').startsWith('image/')){showToast('Selecciona una imagen válida.');return}var b64=await readFile(f);openDrawer('👁 Air Flow Vision','<div class=\"result\">'+esc(f.name||'Imagen')+'</div><textarea id=\"visionPrompt\" placeholder=\"¿Qué quieres saber de la imagen?\"></textarea><button class=\"btn primary\" id=\"visionRun\">Analizar imagen</button><div id=\"visionResult\"></div>');$('visionRun').onclick=async function(){var r=$('visionResult');r.innerHTML='<div class=\"result\">Analizando…</div>';try{var d=await api('/air-flow/vision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:$('visionPrompt').value.trim()||'Analiza esta imagen y explica lo importante.',image:{data:b64,mimeType:f.type}})});r.innerHTML='<div class=\"result\">'+markdown(d.reply||'Sin resultado')+'</div>'}catch(e){r.innerHTML='<div class=\"result\">⚠️ '+esc(e.message)+'</div>'}}}\nasync function files(f){var b64=await readFile(f);openDrawer('📎 Air Flow Files','<div class=\"result\">'+esc(f.name||'Archivo')+' · '+esc(f.type||'application/octet-stream')+'</div><textarea id=\"filePrompt\" placeholder=\"¿Qué quieres que haga con el archivo?\"></textarea><button class=\"btn primary\" id=\"fileRun\">Analizar archivo</button><div id=\"fileResult\"></div>');$('fileRun').onclick=async function(){var r=$('fileResult');r.innerHTML='<div class=\"result\">Analizando…</div>';try{var d=await api('/air-flow/file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:$('filePrompt').value.trim()||'Resume y analiza este archivo.',file:{data:b64,mimeType:f.type||'application/octet-stream',name:f.name||'archivo'}})});r.innerHTML='<div class=\"result\">'+markdown(d.reply||'Sin resultado')+'</div>'}catch(e){r.innerHTML='<div class=\"result\">⚠️ '+esc(e.message)+'</div>'}}}\nasync function memoryPanel(){try{var d=await api('/air-flow/memory');var m=d.memory||{};openDrawer('🧠 Memoria de Air Flow','<div class=\"result\">'+esc(JSON.stringify(m,null,2))+'</div><button class=\"btn\" id=\"clearMemory\">🗑 Borrar memoria permanente</button>');$('clearMemory').onclick=async function(){try{await api('/air-flow/memory',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'all'})});showToast('Memoria eliminada.');closeDrawer()}catch(e){showToast(e.message)}}}catch(e){openDrawer('🧠 Memoria','<div class=\"result\">⚠️ '+esc(e.message)+'</div>')}}\nasync function runAgent(goal){var wait=thinking();setBusy(true);try{var d=await api('/air-flow/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal:goal})});if(wait)wait.remove();addMessage('assistant',(d.plan||[]).map(function(x,i){return (i+1)+'. '+x.label}).join('\\\\n')||'No se pudo crear un plan.');openDrawer('🤖 Air Flow Agent','<div class=\"result\">'+esc(JSON.stringify(d.plan||[],null,2))+'</div><button class=\"btn primary\" id=\"approveAgent\">✅ Ejecutar plan</button>');$('approveAgent').onclick=async function(){try{var r=await api('/air-flow/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal:goal,approve:true})});openDrawer('🤖 Resultado del Agent','<div class=\"result\">'+esc(JSON.stringify(r.results||r,null,2))+'</div>')}catch(e){showToast(e.message)}}}catch(e){if(wait)wait.remove();addMessage('assistant','⚠️ '+e.message)}finally{setBusy(false)}}\nasync function renderGeneratedImage(r,d){\n  r.innerHTML='';\n  if(d.provider==='openrouter'){\n    var note=document.createElement('div');note.className='result';\n    note.textContent='OpenRouter · '+(d.model||'modelo')+(typeof d.costUsd==='number'?' · coste informado: US$'+d.costUsd.toFixed(4):' · generación completada');r.appendChild(note);\n  }else if(d.provider==='stablehorde'){\n    var note2=document.createElement('div');note2.className='result';\n    note2.textContent='Stable Horde · comunidad de voluntarios · el tiempo de generación depende de la cola.';r.appendChild(note2);\n  }\n  var imageSource='';\n  if(d.imageUrl){\n    imageSource=String(d.imageUrl);\n    if(!/^https:\\/\\//i.test(imageSource))throw new Error('Stable Horde devolvió una URL de imagen no segura.');\n  }else if(d.data){\n    imageSource='data:'+(d.mimeType||'image/png')+';base64,'+d.data;\n  }else{\n    throw new Error('No se recibió la imagen.');\n  }\n  var img=document.createElement('img');img.className='artifact-img';img.alt='Imagen generada por Air Flow';img.loading='lazy';img.src=imageSource;r.appendChild(img);\n  if(d.imageUrl){\n    var link=document.createElement('a');link.href=imageSource;link.target='_blank';link.rel='noopener noreferrer';link.className='btn';link.textContent='Abrir o guardar imagen';link.style.display='inline-block';r.appendChild(link);\n  }\n}\nasync function pollStableHorde(requestId,statusEl){\n  for(var i=0;i<100;i++){\n    await new Promise(function(resolve){setTimeout(resolve,3000)});\n    if(!statusEl||!statusEl.isConnected)return;\n    try{\n      var d=await api('/air-flow/create/image/status?id='+encodeURIComponent(requestId));\n      if(d.pending){\n        statusEl.textContent=d.message||'Stable Horde está procesando la imagen…';\n        continue;\n      }\n      if(d.imageUrl){\n        renderGeneratedImage(statusEl.parentElement,d);\n        return;\n      }\n      throw new Error('Stable Horde no devolvió una imagen.');\n    }catch(e){\n      if(statusEl&&statusEl.isConnected)statusEl.textContent='⚠️ '+(e.message||'No se pudo consultar la cola.');\n      return;\n    }\n  }\n  if(!statusEl||!statusEl.isConnected)return;\n  statusEl.textContent='La generación sigue en cola. Pulsa “Seguir comprobando” para consultar de nuevo.';\n  var retry=document.createElement('button');retry.className='btn';retry.type='button';retry.textContent='Seguir comprobando';\n  retry.onclick=function(){retry.remove();pollStableHorde(requestId,statusEl)};\n  statusEl.parentElement.appendChild(retry);\n}\nfunction createImagePanel(){\n  openDrawer('🎨 Crear imagen','<textarea id=\"createPrompt\" placeholder=\"Describe la imagen que quieres crear...\"></textarea><div class=\"grid2\"><button class=\"btn primary\" id=\"createRun\">Generar</button><button class=\"btn\" id=\"createClear\">Limpiar</button></div><div id=\"createResult\"></div>');\n  $('createClear').onclick=function(){$('createPrompt').value=''};\n  $('createRun').onclick=async function(){\n    var p=$('createPrompt').value.trim(),r=$('createResult'),run=$('createRun');\n    if(!p){r.innerHTML='<div class=\"result\">Escribe una descripción primero.</div>';return}\n    run.disabled=true;r.innerHTML='<div class=\"result\">Preparando la generación…</div>';\n    try{\n      var d=await api('/air-flow/create/image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p})});\n      if(d.pending&&d.provider==='stablehorde'&&d.requestId){\n        r.innerHTML='<div class=\"result\" id=\"stableHordeStatus\">Solicitud aceptada. Consultando la cola de Stable Horde…</div>';\n        pollStableHorde(d.requestId,$('stableHordeStatus'));\n        return;\n      }\n      renderGeneratedImage(r,d);\n    }catch(e){\n      r.innerHTML='<div class=\"result\">⚠️ '+esc(e.message)+'</div>';\n    }finally{\n      run.disabled=false;\n    }\n  };\n}\nasync function researchPanel(){var q=String(input.value||'').trim();if(q){selectMode('RESEARCH');return sendMessage(q)}openDrawer('🌐 Investigar','<textarea id=\"researchQ\" placeholder=\"¿Qué quieres investigar en la web?\"></textarea><button class=\"btn primary\" id=\"researchRun\">Investigar</button><div id=\"researchResult\"></div>');$('researchRun').onclick=async function(){var q=$('researchQ').value.trim();var r=$('researchResult');if(!q){r.innerHTML='<div class=\"result\">Escribe una consulta.</div>';return}r.innerHTML='<div class=\"result\">Investigando…</div>';try{var d=await api('/air-flow/research',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});r.innerHTML='<div class=\"result\">'+markdown(d.answer||'Sin resultado')+'</div>';if(Array.isArray(d.sources)&&d.sources.length){var links=document.createElement('div');links.className='sources';d.sources.slice(0,10).forEach(function(s){var u=safeUrl(s.url);if(!u)return;var a=document.createElement('a');a.className='source';a.href=u;a.target='_blank';a.rel='noopener noreferrer';a.textContent='↗ '+(s.title||u);links.appendChild(a)});r.appendChild(links)}}catch(e){r.innerHTML='<div class=\"result\">⚠️ '+esc(e.message)+'</div>'}}}\nfunction pcmPlay(base64){try{var raw=atob(base64),len=raw.length,bytes=new Uint8Array(len);for(var i=0;i<len;i++)bytes[i]=raw.charCodeAt(i);var samples=new Int16Array(bytes.buffer);var ctx=state.audioContext||(state.audioContext=new (window.AudioContext||window.webkitAudioContext)({sampleRate:24000}));if(ctx.state==='suspended')ctx.resume();var buffer=ctx.createBuffer(1,samples.length,24000),data=buffer.getChannelData(0);for(var j=0;j<samples.length;j++)data[j]=samples[j]/32768;var src=ctx.createBufferSource();src.buffer=buffer;src.connect(ctx.destination);var when=Math.max(ctx.currentTime,state.nextAudioTime||0);src.start(when);state.nextAudioTime=when+buffer.duration}catch(e){}}\nfunction stopMic(){if(state.micProcessor){try{state.micProcessor.disconnect()}catch(e){}}if(state.micSource){try{state.micSource.disconnect()}catch(e){}}if(state.micGain){try{state.micGain.disconnect()}catch(e){}}if(state.micStream){state.micStream.getTracks().forEach(function(t){t.stop()})}if(state.micContext){try{state.micContext.close()}catch(e){}}state.micStream=null;state.micContext=null;state.micSource=null;state.micProcessor=null;state.micGain=null;var b=document.getElementById('liveMic');if(b)b.textContent='🎤 Activar micrófono';}\nfunction floatTo16BitPCM(input){var out=new Int16Array(input.length);for(var i=0;i<input.length;i++){var s=Math.max(-1,Math.min(1,input[i]));out[i]=s<0?s*0x8000:s*0x7FFF;}return out;}\nfunction bytesToBase64(bytes){var chunk=0x8000,bin='';for(var i=0;i<bytes.length;i+=chunk){bin+=String.fromCharCode.apply(null,bytes.subarray(i,Math.min(i+chunk,bytes.length)));}return btoa(bin);}\nasync function startMic(){if(!state.liveSocket||state.liveSocket.readyState!==WebSocket.OPEN){showToast('Primero conecta Air Flow Live.');return}if(state.micStream){stopMic();return}if(!navigator.mediaDevices?.getUserMedia){showToast('Tu navegador no permite usar el micrófono.');return}try{state.micStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});state.micContext=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});await state.micContext.resume();state.micSource=state.micContext.createMediaStreamSource(state.micStream);state.micProcessor=state.micContext.createScriptProcessor(4096,1,1);state.micGain=state.micContext.createGain();state.micGain.gain.value=0;state.micProcessor.onaudioprocess=function(ev){if(!state.liveSocket||state.liveSocket.readyState!==WebSocket.OPEN)return;var pcm=floatTo16BitPCM(ev.inputBuffer.getChannelData(0));state.liveSocket.send(JSON.stringify({realtimeInput:{audio:{data:bytesToBase64(new Uint8Array(pcm.buffer)),mimeType:'audio/pcm;rate=16000'}}}));};state.micSource.connect(state.micProcessor);state.micProcessor.connect(state.micGain);state.micGain.connect(state.micContext.destination);var b=document.getElementById('liveMic');if(b)b.textContent='⏹ Detener micrófono';var st=document.getElementById('liveStatus');if(st)st.textContent='🟢 Micrófono activo · habla con Air Flow';}catch(e){stopMic();showToast('No pude acceder al micrófono: '+(e.message||'permiso denegado'));}}\nfunction stopLive(){stopMic();if(state.liveSocket){try{state.liveSocket.close()}catch(e){}}state.liveSocket=null;state.nextAudioTime=0;}\nasync function livePanel(){try{var d=await api('/air-flow/live/token',{method:'POST'});if(!d.token)throw new Error('El servidor no devolvió un token Live.');openDrawer('🎙 Air Flow Live','<div id=\"liveStatus\" class=\"result\">Conectando…</div><textarea id=\"liveInput\" placeholder=\"Escribe mientras la sesión Live está activa…\"></textarea><div class=\"grid2\"><button class=\"btn primary\" id=\"liveSend\" disabled>Enviar</button><button class=\"btn\" id=\"liveMic\">🎤 Activar micrófono</button></div><button class=\"btn\" id=\"liveStop\">Cerrar sesión</button><div id=\"liveOutput\" class=\"result\">La respuesta de voz aparecerá aquí.</div>');$('liveStop').onclick=function(){stopLive();closeDrawer()};$('liveMic').onclick=startMic;var base=d.websocket||'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained';var ws=base+(base.indexOf('?')>=0?'&':'?')+'access_token='+encodeURIComponent(d.token);state.liveSocket=new WebSocket(ws);state.liveSocket.onopen=function(){var st=$('liveStatus');if(st)st.textContent='🟢 Live conectado';try{state.liveSocket.send(JSON.stringify({setup:{model:'models/'+(d.model||'gemini-3.8-live'),generationConfig:{responseModalities:['AUDIO'],outputAudioTranscription:{},sessionResumption:{}}}}))}catch(e){}};state.liveSocket.onmessage=function(ev){try{var x=JSON.parse(ev.data),c=x.serverContent||{};if(x.setupComplete){if($('liveStatus'))$('liveStatus').textContent='🟢 Live listo';}if(c.inputTranscription?.text){$('liveOutput').textContent+='\\\\nTÚ: '+c.inputTranscription.text}if(c.outputTranscription?.text){$('liveOutput').textContent+='\\\\nAIR FLOW: '+c.outputTranscription.text}for(var p of ((c.modelTurn&&c.modelTurn.parts)||[])){var b=p&&p.inlineData;if(b?.data)pcmPlay(b.data)}}catch(e){}};state.liveSocket.onerror=function(){if($('liveStatus'))$('liveStatus').textContent='⚠️ Error de conexión Live';};state.liveSocket.onclose=function(){if($('liveStatus'))$('liveStatus').textContent='⚪ Live desconectado';};$('liveSend').disabled=false;$('liveSend').onclick=function(){var v=$('liveInput').value.trim();if(!v||!state.liveSocket||state.liveSocket.readyState!==WebSocket.OPEN)return;state.liveSocket.send(JSON.stringify({realtimeInput:{text:v}}));$('liveOutput').textContent+='\\\\nTÚ: '+v;$('liveInput').value='';}}\ncatch(e){openDrawer('🎙 Air Flow Live','<div class=\"result\">⚠️ '+esc(e.message||'Live no está disponible.')+'</div>')}}\nfunction navAction(name){if(name==='chat'){closeDrawer();sidebar.classList.remove('open');return}if(name==='research')return researchPanel();if(name==='vision')return chooseFile('vision');if(name==='files')return chooseFile('files');if(name==='live')return livePanel();if(name==='create')return createImagePanel();if(name==='memory')return memoryPanel();if(name==='agent'){input.value='';selectMode('AGENT');input.focus();return}}\nfunction retryLast(){var last=null;for(var i=state.history.length-1;i>=0;i--){if(state.history[i].role==='user'){last=state.history[i].content;break}}if(!last){showToast('No hay un mensaje para repetir.');return}var idx=state.history.map(function(x){return x.content}).lastIndexOf(last);if(idx>=0)state.history=state.history.slice(0,idx);var msgs=Array.from(messages.querySelectorAll('.message'));var lastUser=-1;for(var k=msgs.length-1;k>=0;k--){if(msgs[k].classList.contains('user')){lastUser=k;break}}if(lastUser>=0)messages.querySelectorAll('.message').forEach(function(m,i){if(i>=lastUser)m.remove()});sendMessage(last)}\ndocument.querySelectorAll('[data-mode]').forEach(function(b){b.addEventListener('click',function(){selectMode(b.dataset.mode)})});\ndocument.querySelectorAll('[data-nav]').forEach(function(b){b.addEventListener('click',function(){navAction(b.dataset.nav)})});\ndocument.querySelectorAll('[data-suggest]').forEach(function(b){b.addEventListener('click',function(){var t=b.dataset.suggest;selectMode(t.toLowerCase().indexOf('investiga')>=0?'RESEARCH':t.toLowerCase().indexOf('código')>=0?'CODE':t.toLowerCase().indexOf('plan')>=0?'PLANNER':'QUICK');sendMessage(t)})});\n$('newChat').onclick=clearChat;$('homeBtn').onclick=function(){location.href='/home'};$('profileBtn').onclick=function(){location.href='/profile'};$('statusBtn').onclick=statusPanel;$('voiceBtn').onclick=livePanel;$('attachBtn').onclick=function(){chooseFile('files')};$('menuBtn').onclick=function(){sidebar.classList.toggle('open')};$('themeBtn').onclick=function(){document.body.classList.toggle('light');document.body.style.background=document.body.classList.contains('light')?'#edf6fc':''};\ninput.addEventListener('input',resizeInput);input.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}});send.onclick=function(){sendMessage()};\n$('globalSearch').addEventListener('keydown',async function(e){if(e.key!=='Enter')return;e.preventDefault();var q=this.value.trim();if(!q)return;this.value='';selectMode('RESEARCH');sendMessage(q)});\nmessages.addEventListener('click',function(e){var btn=e.target.closest&&e.target.closest('[data-action]');if(!btn)return;var action=btn.dataset.action;var bubble=btn.closest('.message')?.querySelector('.bubble');if(action==='copy'){navigator.clipboard?.writeText(bubble?.innerText||'').then(function(){showToast('Copiado al portapapeles.')})}else if(action==='up'||action==='down'){api('/air-flow/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({feedback:action,mode:state.mode})}).catch(function(){});showToast(action==='up'?'Gracias por la valoración 👍':'Gracias por avisar 👌')}else if(action==='retry'){retryLast()}});\nmessages.addEventListener('click',function(e){var c=e.target.closest&&e.target.closest('.code-copy');if(!c)return;var code=c.parentElement?.querySelector('code')?.innerText||'';navigator.clipboard?.writeText(code).then(function(){c.textContent='Copiado'})});\nfile.addEventListener('change',async function(){var f=file.files?.[0];file.value='';if(!f)return;try{if(state.filePurpose==='vision')await vision(f);else await files(f)}catch(e){showToast(e.message)}});\noverlay.addEventListener('click',function(e){if(e.target===overlay)closeDrawer()});\nasync function loadModels(){try{var d=await api('/air-flow/models');var sel=$('modelSel');if(!sel||!d.models||!d.models.length)return;var saved='';try{saved=localStorage.getItem('af-model')||''}catch(e){}sel.innerHTML='';d.models.forEach(function(m){var o=document.createElement('option');o.value=m.id;o.textContent=m.label;sel.appendChild(o)});state.model=d.models.some(function(m){return m.id===saved})?saved:(d.default||d.models[0].id);sel.value=state.model;sel.onchange=function(){state.model=sel.value;try{localStorage.setItem('af-model',sel.value)}catch(e){}showToast('Modelo: '+sel.options[sel.selectedIndex].text)}}catch(e){}}\nbindSuggestions();resizeInput();loadRecent();loadModels();\n})();";
+
+const AF_MULTIMODAL_APP_JS = "(function(){\n'use strict';\nvar nav=document.querySelector('.nav');\nvar overlay=document.getElementById('overlay');\nvar drawer=document.getElementById('drawer');\nfunction esc(value){var node=document.createElement('div');node.textContent=String(value==null?'':value);return node.innerHTML;}\nfunction openPanel(title,body){\n  drawer.innerHTML='<div class=\"drawer-head\"><h3>'+esc(title)+'</h3><button class=\"close\" id=\"afmClose\">×</button></div><div class=\"drawer-body\">'+body+'</div>';\n  overlay.classList.add('show');\n  var close=document.getElementById('afmClose');\n  if(close)close.onclick=function(){overlay.classList.remove('show');};\n}\nasync function requestJSON(url,body,method){\n  var response=await fetch(url,{method:method||'POST',credentials:'same-origin',cache:'no-store',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});\n  var data=await response.json().catch(function(){return {};});\n  if(!response.ok)throw new Error(data.error||('HTTP '+response.status));\n  return data;\n}\nfunction readDataURL(file){\n  return new Promise(function(resolve,reject){\n    var reader=new FileReader();\n    reader.onload=function(){resolve(String(reader.result||''));};\n    reader.onerror=function(){reject(new Error('No se pudo leer el archivo.'));};\n    reader.readAsDataURL(file);\n  });\n}\nfunction addButton(key,label,icon,handler){\n  if(!nav||nav.querySelector('[data-airflow-extra=\"'+key+'\"]'))return;\n  var button=document.createElement('button');\n  button.type='button';\n  button.dataset.airflowExtra=key;\n  button.innerHTML='<span class=\"nav-ico\">'+icon+'</span> '+label;\n  button.addEventListener('click',handler);\n  nav.appendChild(button);\n}\nfunction audioPanel(){\n  openPanel('🎧 Air Flow Audio',\n    '<p class=\"muted\">Transcribe audio y convierte texto en voz. Los archivos de audio no se guardan en tu biblioteca.</p>'+\n    '<label>Archivo de audio</label><input id=\"afmAudioFile\" type=\"file\" accept=\"audio/*\">'+\n    '<div class=\"grid2\"><button class=\"btn primary\" id=\"afmTranscribe\">Transcribir</button><select id=\"afmAudioTask\"><option value=\"transcribe\">Transcribir</option><option value=\"translate\">Traducir al inglés</option></select></div>'+\n    '<div id=\"afmTranscript\" class=\"result\">Selecciona un audio para empezar.</div>'+\n    '<hr><label>Texto para convertir en voz (español)</label><textarea id=\"afmSpeechText\" maxlength=\"1800\" placeholder=\"Escribe lo que Air Flow debe decir…\"></textarea>'+\n    '<label>Voz</label><select id=\"afmSpeaker\"><option value=\"aquila\">Aquila</option><option value=\"alvaro\">Álvaro</option><option value=\"carina\">Carina</option><option value=\"celeste\">Celeste</option><option value=\"diana\">Diana</option><option value=\"estrella\">Estrella</option><option value=\"javier\">Javier</option><option value=\"selena\">Selena</option><option value=\"sirio\">Sirio</option><option value=\"nestor\">Néstor</option></select>'+\n    '<button class=\"btn primary\" id=\"afmSpeak\">Generar voz</button><div id=\"afmSpeechResult\"></div>');\n  var file=document.getElementById('afmAudioFile');\n  document.getElementById('afmTranscribe').onclick=async function(){\n    var out=document.getElementById('afmTranscript'),selected=file.files&&file.files[0];\n    if(!selected){out.textContent='Selecciona un archivo de audio.';return;}\n    if(selected.size>8*1024*1024){out.textContent='El audio supera 8 MB.';return;}\n    out.textContent='Transcribiendo con Workers AI…';\n    try{\n      var data=await readDataURL(selected);\n      var result=await requestJSON('/air-flow/api/audio/transcribe',{audio:{data:data,mimeType:selected.type||'audio/mpeg'},task:document.getElementById('afmAudioTask').value});\n      out.textContent=result.transcript||'No se detectó voz.';\n      if(result.vtt){var link=document.createElement('a');link.href=URL.createObjectURL(new Blob([result.vtt],{type:'text/vtt'}));link.download='air-flow-transcripcion.vtt';link.className='btn';link.textContent='Descargar subtítulos VTT';out.appendChild(document.createElement('br'));out.appendChild(link);}\n    }catch(error){out.textContent='⚠️ '+error.message;}\n  };\n  document.getElementById('afmSpeak').onclick=async function(){\n    var text=document.getElementById('afmSpeechText').value.trim(),out=document.getElementById('afmSpeechResult');\n    if(!text){out.textContent='Escribe el texto primero.';return;}\n    out.textContent='Generando voz…';\n    try{\n      var response=await fetch('/air-flow/api/audio/speech',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,speaker:document.getElementById('afmSpeaker').value})});\n      if(!response.ok){var error=await response.json().catch(function(){return {};});throw new Error(error.error||('HTTP '+response.status));}\n      var blob=await response.blob(),url=URL.createObjectURL(blob);\n      out.innerHTML='';\n      var player=document.createElement('audio');player.controls=true;player.src=url;player.style.width='100%';out.appendChild(player);\n      var link=document.createElement('a');link.href=url;link.download='air-flow-voz.mp3';link.className='btn';link.textContent='Descargar MP3';out.appendChild(link);\n    }catch(error){out.textContent='⚠️ '+error.message;}\n  };\n}\nfunction videoPanel(){\n  openPanel('🎬 Air Flow Video',\n    '<p class=\"muted\">Analiza clips cortos, resume escenas y pregunta por momentos concretos. Límite: 8 MB por vídeo.</p>'+\n    '<input id=\"afmVideoFile\" type=\"file\" accept=\"video/mp4,video/mpeg,video/mov,video/avi,video/webm,video/quicktime\">'+\n    '<textarea id=\"afmVideoPrompt\" maxlength=\"2500\" placeholder=\"¿Qué quieres saber del vídeo?\"></textarea>'+\n    '<button class=\"btn primary\" id=\"afmVideoAnalyze\">Analizar vídeo</button><div id=\"afmVideoResult\" class=\"result\"></div>');\n  document.getElementById('afmVideoAnalyze').onclick=async function(){\n    var file=document.getElementById('afmVideoFile').files[0],out=document.getElementById('afmVideoResult');\n    if(!file){out.textContent='Selecciona un vídeo.';return;}\n    if(file.size>8*1024*1024){out.textContent='El vídeo supera 8 MB. Prueba con un clip más corto.';return;}\n    out.textContent='Enviando el clip a Gemini para analizar escenas…';\n    try{\n      var data=await readDataURL(file);\n      var result=await requestJSON('/air-flow/api/video/analyze',{video:{data:data,mimeType:file.type||'video/mp4',name:file.name},prompt:document.getElementById('afmVideoPrompt').value.trim()});\n      out.textContent=result.answer||'No se obtuvo un análisis.';\n    }catch(error){out.textContent='⚠️ '+error.message;}\n  };\n}\nfunction dataPanel(){\n  openPanel('📊 Air Flow Data',\n    '<p class=\"muted\">Análisis descriptivo de CSV: columnas, valores faltantes, estadísticas numéricas y tendencias simples. No genera predicciones garantizadas.</p>'+\n    '<input id=\"afmCsvFile\" type=\"file\" accept=\".csv,text/csv,application/vnd.ms-excel\">'+\n    '<button class=\"btn primary\" id=\"afmCsvAnalyze\">Analizar datos</button><div id=\"afmCsvResult\" class=\"result\"></div>');\n  document.getElementById('afmCsvAnalyze').onclick=async function(){\n    var file=document.getElementById('afmCsvFile').files[0],out=document.getElementById('afmCsvResult');\n    if(!file){out.textContent='Selecciona un archivo CSV.';return;}\n    if(file.size>2*1024*1024){out.textContent='El CSV supera 2 MB.';return;}\n    out.textContent='Calculando estadísticas y patrones…';\n    try{\n      var data=await readDataURL(file);\n      var result=await requestJSON('/air-flow/api/data/analyze',{file:{data:data,mimeType:file.type||'text/csv',name:file.name}});\n      out.innerHTML='<strong>Resumen estadístico</strong><pre>'+esc(JSON.stringify(result.analysis,null,2))+'</pre><strong>Interpretación de Air Flow</strong><p>'+esc(result.insight||'Sin comentario adicional.')+'</p><small>'+esc(result.note||'')+'</small>';\n    }catch(error){out.textContent='⚠️ '+error.message;}\n  };\n}\nasync function tasksPanel(){\n  openPanel('🤖 Air Flow Agent Tasks',\n    '<p class=\"muted\">Guarda planes por cuenta. Las tareas solo se ejecutan después de una confirmación explícita; las acciones externas sensibles siguen bloqueadas.</p>'+\n    '<textarea id=\"afmTaskGoal\" maxlength=\"4000\" placeholder=\"Describe el objetivo que quieres planificar…\"></textarea>'+\n    '<button class=\"btn primary\" id=\"afmTaskCreate\">Guardar tarea</button><div id=\"afmTaskList\"></div>');\n  var list=document.getElementById('afmTaskList');\n  async function refresh(){\n    try{\n      var result=await requestJSON('/air-flow/api/agent/tasks',null,'GET');\n      list.innerHTML='';\n      (result.tasks||[]).forEach(function(task){\n        var card=document.createElement('div');card.className='result';\n        var title=document.createElement('strong');title.textContent=task.goal||'Tarea de Air Flow';card.appendChild(title);\n        var status=document.createElement('p');status.textContent='Estado: '+task.status;card.appendChild(status);\n        if(Array.isArray(task.plan)&&task.plan.length){var plan=document.createElement('pre');plan.textContent=task.plan.map(function(step,index){return (index+1)+'. '+step.label;}).join('\\n');card.appendChild(plan);}\n        if(task.result_summary){var summary=document.createElement('pre');summary.textContent=JSON.stringify(task.result_summary,null,2);card.appendChild(summary);}\n        if(task.status==='planned'){\n          var run=document.createElement('button');run.className='btn primary';run.textContent='Confirmar y ejecutar';run.onclick=async function(){\n            if(!window.confirm('¿Confirmas ejecutar esta tarea?'))return;\n            run.disabled=true;\n            try{\n              var response=await requestJSON('/air-flow/api/agent/tasks',{action:'run',id:task.id,confirmed:true});\n              card.appendChild(document.createTextNode(JSON.stringify(response.result||{},null,2)));\n              await refresh();\n            }catch(error){status.textContent='⚠️ '+error.message;run.disabled=false;}\n          };\n          var cancel=document.createElement('button');cancel.className='btn';cancel.textContent='Cancelar';cancel.onclick=async function(){\n            try{await requestJSON('/air-flow/api/agent/tasks?id='+encodeURIComponent(task.id),null,'DELETE');await refresh();}catch(error){status.textContent='⚠️ '+error.message;}\n          };\n          card.appendChild(run);card.appendChild(cancel);\n        }\n        list.appendChild(card);\n      });\n      if(!(result.tasks||[]).length)list.textContent='Todavía no hay tareas guardadas.';\n    }catch(error){list.textContent='⚠️ '+error.message;}\n  }\n  document.getElementById('afmTaskCreate').onclick=async function(){\n    var goal=document.getElementById('afmTaskGoal').value.trim();\n    if(!goal){list.textContent='Escribe el objetivo primero.';return;}\n    try{await requestJSON('/air-flow/api/agent/tasks',{goal:goal});document.getElementById('afmTaskGoal').value='';await refresh();}\n    catch(error){list.textContent='⚠️ '+error.message;}\n  };\n  await refresh();\n}\nasync function libraryPanel(){\n  openPanel('📚 Biblioteca de archivos','<p class=\"muted\">Archivos de texto guardados de forma privada para tu cuenta. Los borrados eliminan el archivo y su índice.</p><div id=\"afmLibraryList\">Cargando…</div>');\n  var list=document.getElementById('afmLibraryList');\n  try{\n    var result=await requestJSON('/air-flow/files/search',null,'GET');\n    list.innerHTML='';\n    (result.files||[]).forEach(function(file){\n      var row=document.createElement('div');row.className='result';\n      var name=document.createElement('strong');name.textContent=file.name||file.id;row.appendChild(name);\n      var meta=document.createElement('small');meta.textContent=' · '+(file.mime||'archivo')+' · '+(file.created_at||'');row.appendChild(meta);\n      var del=document.createElement('button');del.className='btn';del.textContent='Eliminar';del.onclick=async function(){\n        if(!window.confirm('¿Eliminar este archivo de tu biblioteca?'))return;\n        try{await requestJSON('/air-flow/api/files/'+encodeURIComponent(file.id),null,'DELETE');row.remove();}\n        catch(error){meta.textContent=' · '+error.message;}\n      };\n      row.appendChild(del);list.appendChild(row);\n    });\n    if(!(result.files||[]).length)list.textContent='Tu biblioteca está vacía.';\n  }catch(error){list.textContent='⚠️ '+error.message;}\n}\naddButton('audio','Audio','🎧',audioPanel);\naddButton('video','Vídeo','🎬',videoPanel);\naddButton('data','Datos','📊',dataPanel);\naddButton('agent-tasks','Agent Tasks','🤖',tasksPanel);\naddButton('library','Biblioteca','📚',libraryPanel);\n})();";
 
 async function handleAirFlowAppJs() {
-    return new Response(AF_APP_JS, {
+    return new Response(AF_APP_JS + '\n' + AF_MULTIMODAL_APP_JS, {
         headers: {
             'Content-Type': 'application/javascript; charset=utf-8',
             'Cache-Control': 'no-store',
@@ -8667,6 +9221,37 @@ async function handleToggleDarkMode(env, request) {
 // ==================================================
 // [ PÁGINA DE BIENVENIDA / GATE - COMPLETA ]
 // ==================================================
+async function handleAppLaunch(env, request) {
+    const auth = await requireAuth(env, request);
+    const destination = auth ? '/home' : '/welcome';
+    const html = `<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#0a1a2b"><title>OceanHub</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}
+body{display:grid;place-items:center;background:linear-gradient(145deg,#071321,#12385a 55%,#061526);color:#e0f0ff;font-family:Segoe UI,system-ui,sans-serif}
+.launch{position:relative;isolation:isolate;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;width:100%;height:100%;text-align:center}
+.launch:before,.launch:after{content:"";position:absolute;z-index:-1;width:180vw;height:180vw;border-radius:44%;background:radial-gradient(circle,rgba(0,200,255,.13),transparent 58%);animation:rotate 18s linear infinite}
+.launch:after{background:radial-gradient(circle,rgba(30,110,255,.12),transparent 58%);animation-duration:28s;animation-direction:reverse}
+@keyframes rotate{to{transform:rotate(360deg)}}
+.logo{width:104px;height:104px;object-fit:contain;filter:drop-shadow(0 0 24px #00bfff88);animation:float 2.4s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-6px) scale(1.03)}}
+.ring{width:116px;height:116px;position:absolute;border:3px solid #00c8ff22;border-top-color:#00ccff;border-radius:50%;animation:spin 1s linear infinite;box-shadow:0 0 26px #00ccff44}
+@keyframes spin{to{transform:rotate(360deg)}}
+h1{margin:0;font-size:clamp(26px,8vw,38px);letter-spacing:.06em;text-shadow:0 0 22px #00ccff88;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.68}}
+p{margin:0;color:#9bc9e8;font-size:14px;letter-spacing:.04em}
+.dots:after{content:"";animation:dots 1.5s steps(4,end) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+.fade{animation:fade .65s ease forwards}
+@keyframes fade{to{opacity:0;transform:scale(1.025)}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important}}
+</style></head>
+<body><main class="launch" id="launch"><div class="ring" aria-hidden="true"></div><img class="logo" src="/ocean-icon.svg" alt="OceanHub"><h1>OceanHub</h1><p class="dots">Preparando tu océano</p></main>
+<script>(function(){setTimeout(function(){document.getElementById('launch').classList.add('fade');setTimeout(function(){location.replace('${destination}')},650)},1900)})();</script>
+<noscript><a href="${destination}">Continuar a OceanHub</a></noscript></body></html>`;
+    return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
 async function handleWelcome(env, request) {
     const auth = await requireAuth(env, request);
     if (auth) {
@@ -9157,6 +9742,7 @@ function isPublicRoute(path) {
         '/app.webmanifest',
         '/sw.js',
         '/ocean-icon.svg',
+        '/app-launch',
         '/welcome',
         '/login',
         '/register',
@@ -10887,6 +11473,9 @@ async function socialPushNotif(env, toEmail, notif) {
     };
     list.unshift(item);
     await socialSaveNotifs(env, toEmail, list);
+    // Persisted in-app notifications remain authoritative; push delivery is best-effort.
+    try { await sendPushToUser(env, toEmail, item, withKVLock); }
+    catch (error) { console.warn('Push notification delivery skipped:', error?.message || error); }
     return item;
 }
 
@@ -11045,6 +11634,24 @@ async function handleNotificationsPage(env, request) {
     if (!auth) return Response.redirect(new URL('/login', request.url).href, 302);
     const html = socialShell('Notificaciones', `
       <h1>🔔 Notificaciones</h1>
+      <section class="card" id="pushSettings" aria-labelledby="pushSettingsTitle">
+        <h2 id="pushSettingsTitle">Notificaciones en tus dispositivos</h2>
+        <p id="pushStatus" class="muted">Activa las notificaciones para recibir avisos de OceanHub en este dispositivo.</p>
+        <div class="row">
+          <button class="btn" type="button" id="pushEnable">Activar notificaciones</button>
+          <button class="btn ghost" type="button" id="pushDisable">Desactivar en este dispositivo</button>
+        </div>
+        <div style="margin-top:14px;display:grid;gap:8px">
+          <strong>Qué quieres recibir</strong>
+          <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pushPrefMessages" style="width:auto"> Mensajes privados</label>
+          <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pushPrefSocial" style="width:auto"> Amigos, invitaciones y actividad social</label>
+          <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pushPrefSystem" style="width:auto"> Avisos de cuenta y sistema</label>
+        </div>
+        <label id="pushAutostartWrap" hidden style="display:flex;align-items:center;gap:8px;margin-top:12px">
+          <input type="checkbox" id="pushAutostart" style="width:auto">
+          Iniciar OceanHub al encender Windows (opcional)
+        </label>
+      </section>
       <div class="row" style="margin-bottom:12px">
         <button class="btn ghost" id="readAll">Marcar todas leídas</button>
         <button class="btn danger" id="clearAll">Vaciar</button>
@@ -11121,6 +11728,16 @@ export async function workerFetch(request, env) {
             });
         }
 
+        // Static push assets are same-origin and do not expose user data.
+        if (path === '/assets/oceanhub-push.js') {
+            return new Response(PUSH_CLIENT_JS, {
+                headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' }
+            });
+        }
+        if (path === '/firebase-messaging-sw.js') {
+            return handleFirebaseMessagingServiceWorker(env);
+        }
+
         // ==================================================
         // 🔐 GATE DE AUTENTICACIÓN
         // ==================================================
@@ -11129,6 +11746,23 @@ export async function workerFetch(request, env) {
             if (!auth) {
                 return Response.redirect(`${url.origin}/welcome`, 302);
             }
+        }
+
+        if (path === '/api/push/socket') {
+            const auth = await requireAuth(env, request);
+            if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+            if (!(await checkActionRateLimit(env, 'push-socket-connect', auth.user.email, 120, 3600))) {
+                return jsonResponse({ error: 'Demasiadas reconexiones de notificaciones' }, 429);
+            }
+            return await handlePushSocket(env, request, auth.user.email);
+        }
+        if (path.startsWith('/api/push/')) {
+            const auth = await requireAuth(env, request);
+            if (!auth) return jsonResponse({ error: 'No autorizado' }, 403);
+            if (!(await checkActionRateLimit(env, 'push-api:' + path, auth.user.email, 120, 3600))) {
+                return jsonResponse({ error: 'Demasiadas solicitudes de notificaciones' }, 429);
+            }
+            return await handlePushApi(env, request, auth.user.email, withKVLock);
         }
 
         if (path === '/ocean' || path.startsWith('/ocean/') || path.startsWith('/admin/ocean-')) {
@@ -11149,6 +11783,9 @@ export async function workerFetch(request, env) {
             });
             if (oceanSuiteResponse) return oceanSuiteResponse;
         }
+
+        // --- Shared splash screen for native desktop and Android apps ---
+        if (path === '/app-launch') return await handleAppLaunch(env, request);
 
         // --- Página de bienvenida (gate) ---
         if (path === '/welcome') return await handleWelcome(env, request);
@@ -11182,6 +11819,12 @@ export async function workerFetch(request, env) {
         if (path === '/air-flow/api/memory') return await handleAirFlowMemoryV11(env, request);
         if (path === '/air-flow/api/conversations') return await handleAirFlowConversationsV11(env, request);
         if (path === '/air-flow/api/feedback') return await handleAirFlowFeedbackV11(env, request);
+        if (path === '/air-flow/api/agent/tasks') return await handleAirFlowAgentTasksV1(env, request);
+        if (path.startsWith('/air-flow/api/files/')) return await handleAirFlowFileDeleteV1(env, request);
+        if (path === '/air-flow/api/audio/transcribe') return await handleAirFlowAudioTranscribeV1(env, request);
+        if (path === '/air-flow/api/audio/speech') return await handleAirFlowSpeechV1(env, request);
+        if (path === '/air-flow/api/video/analyze') return await handleAirFlowVideoAnalyzeV1(env, request);
+        if (path === '/air-flow/api/data/analyze') return await handleAirFlowDataAnalyzeV1(env, request);
         if (path === '/air-flow/api/agent') return await handleAirFlowAgentV11(env, request);
         if (path === '/air-flow/api/create/image') return await handleAirFlowCreateImageV11(env, request);
         if (path === '/air-flow/api/live/token') return await handleAirFlowLiveTokenV11(env, request);
@@ -11678,6 +12321,9 @@ export async function applySecurityHeaders(response, festivityConfig = null) {
             const looksLikeHtml = /^(?:\uFEFF)?\s*(?:<!doctype\s+html|<html\b)/i.test(textBody);
             if (contentType.toLowerCase().includes('text/html') || looksLikeHtml) {
                 body = injectFestivityTheme(injectOceanLiquidGlassTheme(textBody), festivityConfig);
+                if (!textBody.includes('/assets/oceanhub-push.js')) {
+                    body = body.replace(/<\/body\s*>/i, '<script src="/assets/oceanhub-push.js" defer></script></body>');
+                }
                 headers.set('Content-Type', 'text/html; charset=utf-8');
                 headers.delete('Content-Length');
                 headers.delete('content-length');
@@ -11696,11 +12342,11 @@ export async function applySecurityHeaders(response, festivityConfig = null) {
         "object-src 'none'",
         "frame-ancestors 'none'",
         "form-action 'self'",
-        "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com",
+        "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com https://www.gstatic.com",
         "style-src 'self' https://fonts.googleapis.com",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https://fonts.gstatic.com",
-        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com",
+        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com https://fcm.googleapis.com wss://oceanhud.yoelenmanuelzorrilla.workers.dev",
         "frame-src 'self' https://www.paypal.com",
         "media-src 'self' blob:",
         "worker-src 'self' blob:",
@@ -11712,13 +12358,13 @@ export async function applySecurityHeaders(response, festivityConfig = null) {
         "object-src 'none'",
         "frame-ancestors 'none'",
         "form-action 'self'",
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com https://www.gstatic.com",
         "script-src-attr 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
         "style-src-attr 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https://fonts.gstatic.com",
-        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com",
+        "connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://openrouter.ai https://api.openrouter.ai https://api-m.paypal.com https://api-m.sandbox.paypal.com https://api.brevo.com https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com https://fcm.googleapis.com wss://oceanhud.yoelenmanuelzorrilla.workers.dev",
         "frame-src 'self' https://www.paypal.com",
         "media-src 'self' blob:",
         "worker-src 'self' blob:",
@@ -11744,6 +12390,7 @@ export default {
         }
         try {
             const response = await workerFetch(request, env);
+            if (response.status === 101) return response;
             let festivityConfig = null;
             const responseType = (response.headers.get('Content-Type') || '').toLowerCase();
             if (responseType.includes('text/html') || !responseType || responseType.startsWith('text/plain')) {

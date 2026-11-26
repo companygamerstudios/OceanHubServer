@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OceanHub",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "identifier": "com.companygamerstudios.oceanhub",
   "build": {
-    "devUrl": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.1",
+    "devUrl": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/app-launch?clientVersion=3.0.2",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -19,16 +19,19 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "url": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/?clientVersion=3.0.1"
+        "url": "https://oceanhud.yoelenmanuelzorrilla.workers.dev/app-launch?clientVersion=3.0.2"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: asset: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://oceanhud.yoelenmanuelzorrilla.workers.dev"
-    }
+      "csp": "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: asset: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://oceanhud.yoelenmanuelzorrilla.workers.dev wss://oceanhud.yoelenmanuelzorrilla.workers.dev"
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "category": "SocialNetworking",
     "shortDescription": "La aplicación independiente de OceanHub",
     "longDescription": "OceanHub es el espacio gamer y social de COMPANY GAMER STUDIOS.",
@@ -38,7 +41,7 @@
     ],
     "android": {
       "minSdkVersion": 24,
-      "versionCode": 3000002
+      "versionCode": 3000003
     }
   }
 }
