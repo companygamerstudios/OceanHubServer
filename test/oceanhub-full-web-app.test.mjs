@@ -7,7 +7,7 @@ import path from "node:path";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = relative => readFile(path.join(root, relative), "utf8");
 
-test("the Android Tauri app opens the complete official OceanHub website", async () => {
+test("the OceanHub Tauri app opens the full official site through the shared versioned launch route", async () => {
   const config = JSON.parse(await read("apps/oceanhub-app/src-tauri/tauri.conf.json"));
   const expected = "https://oceanhud.yoelenmanuelzorrilla.workers.dev/app-launch?clientVersion=3.0.2";
 
@@ -21,6 +21,9 @@ test("the Android Tauri app opens the complete official OceanHub website", async
   assert.deepEqual(config.bundle.targets, ["nsis"]);
   assert.equal(config.bundle.android.minSdkVersion, 24);
   assert.equal(config.bundle.android.versionCode, 3000003);
+  assert.equal(config.version, "3.0.2");
+  const versionPolicy = await read("apps/oceanhub-app/src/version-policy.js");
+  assert.match(versionPolicy, /APP_CLIENT_VERSION = "3.0.2"/);
 });
 
 test("the Android build validates the installed app identity and launcher entry", async () => {
@@ -34,13 +37,50 @@ test("the Android build validates the installed app identity and launcher entry"
   assert.ok(workflow.includes('application-icon-[0-9]+:'), 'workflow must verify an APK launcher icon');
 });
 
-test("the native workflow uploads one raw APK and contains no Windows installer job", async () => {
+test("the Android workflow builds preview APKs only outside main and requires explicit stable release dispatch", async () => {
   const workflow = await read(".github/workflows/oceanhub-native-validation.yml");
+  assert.match(workflow, /npm run icons:android/);
+  assert.match(workflow, /actions\\/upload-artifact@v7/);
+  assert.match(workflow, /archive:\\s*false/);
+  assert.match(workflow, /OceanHub-Android-arm64-preview\\.apk/);
+  assert.match(workflow, /if: github\\.ref != 'refs\\/heads\\/main'/);
+  assert.match(workflow, /default: false/);
+  assert.match(workflow, /v3\\.0\\.2/);
+  assert.match(workflow, /Validate manual release tag matches app version/);
+  assert.doesNotMatch(workflow, /Resolve release tag for version bump/);
+});
 
-  assert.match(workflow, /actions\/upload-artifact@v7/);
-  assert.match(workflow, /archive:\s*false/);
-  assert.match(workflow, /OceanHub-Android-arm64-preview\.apk/);
-  assert.doesNotMatch(workflow, /windows-test-installers|OceanHub-Windows|tauri:build/);
+test("Windows CI and stable release generate platform icons and validate the installer", async () => {
+  const validation = await read(".github/workflows/oceanhub-windows-exe.yml");
+  const release = await read(".github/workflows/oceanhub-windows-release.yml");
+  assert.match(validation, /npm run icons:windows/);
+  assert.match(validation, /--bundles nsis/);
+  assert.match(validation, /OceanHub-Setup-Windows-x64\\.exe/);
+  assert.match(release, /npm run icons:windows/);
+  assert.match(release, /Verify release tag matches app version/);
+  assert.match(release, /OceanHub-Setup-\\*-x64\\.exe/);
+  assert.match(release, /v3\\.0\\.2/);
+  assert.doesNotMatch(release, /\\n  push:\\n/);
+});
+
+test("the startup splash is injected locally and handles quick page loads", async () => {
+  const splash = await read("apps/oceanhub-app/src-tauri/loading-splash.js");
+  const native = await read("apps/oceanhub-app/src-tauri/src/lib.rs");
+  const packageJson = JSON.parse(await read("apps/oceanhub-app/package.json"));
+  assert.match(splash, /MIN_SPLASH_MS = 1200/);
+  assert.match(splash, /document\\.readyState === "complete"/);
+  assert.match(splash, /oceanhub-startup-splash/);
+  assert.match(native, /startup_splash_plugin\\(\\)/);
+  assert.match(native, /include_str!\\("\\.\\.\\/loading-splash\\.js"\\)/);
+  assert.match(packageJson.scripts.build, /loading-splash\\.js/);
+});
+
+test("production deploy does not run for app-only changes", async () => {
+  const workflow = await read(".github/workflows/deploy-production.yml");
+  assert.match(workflow, /paths:/);
+  assert.match(workflow, /OceanHub_SECURITY_PATCHED_FINAL_v18\\.js/);
+  assert.match(workflow, /wrangler\\.production_v18\\.jsonc/);
+  assert.doesNotMatch(workflow, /apps\\/oceanhub-app/);
 });
 
 test("remote OceanHub web content receives no Tauri IPC capability", async () => {
