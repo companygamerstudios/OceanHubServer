@@ -2,7 +2,7 @@ name: OceanHub push notification validation
 
 on:
   push:
-    branches: ["feat/oceanhub-push-notifications"]
+    branches: ["main", "release/oceanhub-3.0.2-airflow-push"]
     paths:
       - "OceanHub_SECURITY_PATCHED_FINAL_v18.js"
       - "push-notifications.js"
