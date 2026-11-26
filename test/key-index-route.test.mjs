@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { hashDynamicKey } from '../OceanHub_SECURITY_PATCHED_FINAL_v18.js';
 
-const source = await readFile(new URL('./OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../OceanHub_SECURITY_PATCHED_FINAL_v18.js', import.meta.url), 'utf8');
 const env = {
   DYNAMIC_KEY_INDEX_SECRET: 'index-' + 'I'.repeat(58),
   DYNAMIC_KEY_ENCRYPTION_SECRET: 'encryption-' + 'E'.repeat(54)
