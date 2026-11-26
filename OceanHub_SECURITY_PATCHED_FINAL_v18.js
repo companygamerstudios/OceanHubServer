@@ -11596,6 +11596,226 @@ thead th:first-child{border-top-left-radius:12px}thead th:last-child{border-top-
  :where(.card,.panel,.tile,.srv,.content-card,.stat-card,.dashboard-card,.key-card,.chat-panel,.settings-card,.profile-card,.section-card,.service-card,.product-card,.payment-card,.glass-card,.notification-card){transition:none!important}
 }
 
+
+/* OCEAN GLASS iOS — unified Liquid Glass language for every OceanHub HTML surface. */
+:root{
+ --oh-ios-glass-soft:rgba(224,250,255,.075);
+ --oh-ios-glass-raised:rgba(224,250,255,.12);
+ --oh-ios-glass-edge:rgba(190,241,255,.25);
+ --oh-ios-glass-edge-hot:rgba(157,249,247,.46);
+ --oh-ios-glass-shine:rgba(255,255,255,.22);
+ --oh-ios-glass-blur:28px;
+ --oh-ios-glass-radius:25px;
+ --oh-ios-glass-shadow:0 22px 64px rgba(0,7,22,.30),inset 0 1px 0 rgba(255,255,255,.13);
+ --oh-ios-glass-shadow-raised:0 30px 82px rgba(0,7,22,.40),0 0 36px rgba(53,197,216,.10),inset 0 1px 0 rgba(255,255,255,.19)
+}
+html{scroll-padding-top:88px}
+body{
+ background-image:
+  radial-gradient(ellipse at 14% 0%,rgba(64,226,219,.20),transparent 34%),
+  radial-gradient(ellipse at 92% 12%,rgba(92,151,255,.18),transparent 32%),
+  radial-gradient(ellipse at 48% 105%,rgba(31,151,184,.17),transparent 42%),
+  linear-gradient(145deg,#031321 0%,#06263d 48%,#071727 100%)!important
+}
+body::before{opacity:.82;filter:blur(38px);animation-duration:30s}
+body::after{opacity:.16;background-image:linear-gradient(120deg,transparent 0 49.85%,rgba(189,247,255,.055) 50%,transparent 50.15%),radial-gradient(circle at 1px 1px,rgba(190,247,255,.12) 1px,transparent 1.5px);background-size:100% 100%,38px 38px}
+
+/* Shared glass surfaces: cards, dialogs, sidebars, drawers and notification layers. */
+:where(
+ .card,.panel,.tile,.srv,.modal,.modal-content,.modal-box,.auth-card,.terms-box,
+ .form-card,.content-card,.stat-card,.dashboard-card,.key-card,.chat-panel,
+ .settings-card,.profile-card,.notification-card,.box,.glass,.glass-card,
+ .section-card,.service-card,.product-card,.payment-card,.section,.drawer,
+ .composer,.empty-card,.result,.dropdown-menu,.popover,.toast,.toast-container,
+ .notification,.notification-item,.notification-toast,.alert-card,.context-menu,
+ .command-menu,.sheet,.bottom-sheet,[role=dialog],[data-glass="panel"]
+){
+ border:1px solid var(--oh-ios-glass-edge)!important;
+ border-radius:var(--oh-ios-glass-radius)!important;
+ background:
+  radial-gradient(ellipse at 8% 0%,rgba(161,249,247,.12),transparent 48%),
+  linear-gradient(145deg,rgba(20,66,88,.70),rgba(5,25,44,.78))!important;
+ box-shadow:var(--oh-ios-glass-shadow)!important;
+ backdrop-filter:blur(var(--oh-ios-glass-blur)) saturate(175%)!important;
+ -webkit-backdrop-filter:blur(var(--oh-ios-glass-blur)) saturate(175%)!important
+}
+:where(.wrap,.page-content,.main-content,.main-shell,.app-shell,.dashboard-layout,#app,#root){background:transparent!important}
+
+/* Floating iOS-like navigation and top-level chrome. */
+:where(nav,.nav,.navbar,.sidebar,.topbar,header.site-header,footer.site-footer,[role=navigation],[data-glass="navigation"]){
+ border:1px solid rgba(190,241,255,.20)!important;
+ background:
+  linear-gradient(155deg,rgba(22,65,86,.82),rgba(4,23,40,.88))!important;
+ box-shadow:0 18px 52px rgba(0,7,20,.28),inset 0 1px 0 rgba(255,255,255,.16)!important;
+ backdrop-filter:blur(30px) saturate(185%)!important;
+ -webkit-backdrop-filter:blur(30px) saturate(185%)!important
+}
+:where(nav a,.nav a,.navbar a,.sidebar a,header.site-header a,[role=navigation] a){
+ border-radius:15px;
+ transition:background .22s ease,color .22s ease,transform .22s ease,box-shadow .22s ease
+}
+:where(nav a,.nav a,.navbar a,.sidebar a,header.site-header a,[role=navigation] a):hover{
+ background:rgba(147,241,245,.11)!important;
+ color:#f2ffff!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.10)
+}
+:where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a)[aria-current=page],
+:where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a).active,
+:where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a).is-active{
+ border:1px solid rgba(157,249,247,.34)!important;
+ background:linear-gradient(115deg,rgba(111,235,232,.22),rgba(99,151,255,.15))!important;
+ color:#eaffff!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 8px 24px rgba(45,190,205,.10)!important
+}
+
+/* Translucent controls retain clear primary, secondary and destructive meanings. */
+:where(button,.btn,input[type=submit],input[type=button],input[type=reset],a.button,.button,[role=button]):not(.danger):not(.btn-danger):not(.danger-btn):not([data-danger="true"]){
+ min-height:42px;
+ border:1px solid rgba(190,241,255,.34)!important;
+ border-radius:16px!important;
+ background:linear-gradient(155deg,rgba(235,252,255,.20),rgba(139,217,239,.075))!important;
+ color:#e9fbff!important;
+ box-shadow:0 9px 24px rgba(0,8,24,.18),inset 0 1px 0 rgba(255,255,255,.20)!important;
+ backdrop-filter:blur(18px) saturate(165%)!important;
+ -webkit-backdrop-filter:blur(18px) saturate(165%)!important
+}
+:where(button[type=submit],input[type=submit],.btn-primary,.button-primary,.primary-action,[data-variant="primary"]):not(.danger):not(.btn-danger):not([data-danger="true"]){
+ border-color:rgba(212,255,255,.48)!important;
+ background:linear-gradient(135deg,rgba(105,231,226,.82),rgba(95,174,245,.76))!important;
+ color:#04283a!important;
+ box-shadow:0 12px 30px rgba(44,188,205,.20),inset 0 1px 0 rgba(255,255,255,.58)!important
+}
+:where(.btn-secondary,.btn-ghost,.ghost,button.secondary,[data-variant="secondary"]){
+ background:linear-gradient(155deg,rgba(216,248,255,.11),rgba(128,192,223,.045))!important;
+ color:#d5f6ff!important
+}
+:where(button.danger,.btn-danger,.danger-btn,button[data-danger="true"]){
+ border-color:rgba(255,174,184,.46)!important;
+ background:linear-gradient(135deg,rgba(255,112,143,.76),rgba(224,117,139,.58))!important;
+ color:#fff5f7!important
+}
+:where(button,.btn,a.button,.button,[role=button]):active{transform:translateY(1px) scale(.985)!important}
+:where(button,.btn,a.button,.button,[role=button]):disabled,
+:where(button,.btn,a.button,.button,[role=button])[aria-disabled=true]{opacity:.52!important;filter:saturate(.55);cursor:not-allowed}
+:where(button,.btn,a.button,.button,[role=button]):focus-visible,
+:where(input,select,textarea):focus-visible{outline:2px solid rgba(160,247,255,.95)!important;outline-offset:3px!important}
+
+/* Text fields become softly inset glass without changing form behavior. */
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),select,textarea){
+ min-height:44px;
+ border:1px solid rgba(184,232,247,.25)!important;
+ border-radius:16px!important;
+ background:rgba(1,17,31,.48)!important;
+ color:#ecfbff!important;
+ box-shadow:inset 0 2px 8px rgba(0,5,18,.18),inset 0 1px 0 rgba(255,255,255,.07)!important;
+ backdrop-filter:blur(16px)!important;
+ -webkit-backdrop-filter:blur(16px)!important
+}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),select,textarea):focus{
+ border-color:rgba(146,246,245,.68)!important;
+ box-shadow:0 0 0 3px rgba(105,240,236,.13),inset 0 1px 0 rgba(255,255,255,.10)!important
+}
+:where(input,textarea)::placeholder{color:#a5c1ce!important}
+:where(input[type=checkbox],input[type=radio],input[type=range],progress){accent-color:#63e2df}
+
+/* Shared typography, badges, dividers, tables and data visualizations. */
+h1,h2,h3,h4{letter-spacing:-.035em!important}
+:where(.badge,.pill,.tag,.chip,.status,.status-badge){
+ border:1px solid rgba(184,241,248,.25)!important;
+ background:linear-gradient(135deg,rgba(119,239,235,.15),rgba(102,159,255,.10))!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.12)
+}
+:where(.muted,.subtitle,.hint,.description,.secondary-text){color:#a8c4d1!important}
+:where(table,.table-wrap){max-width:100%;overflow-x:auto}
+table{border-collapse:separate!important;border-spacing:0!important;border-radius:18px;overflow:hidden}
+thead th{background:rgba(130,225,232,.12)!important;color:#d9fbff!important}
+th,td{border-color:rgba(184,232,247,.17)!important}
+tbody tr:hover td{background:rgba(128,235,238,.07)!important}
+:where(pre,.code-block){border:1px solid rgba(184,232,247,.20)!important;border-radius:18px!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+:where(.modal-overlay,.overlay){background:rgba(0,9,20,.60)!important;backdrop-filter:blur(15px)!important;-webkit-backdrop-filter:blur(15px)!important}
+:where(.af-shell,.af-sidebar,.af-main,.af-panel,.af-card,.af-composer,.af-chat,.af-message,.af-mode,.af-toolbar){
+ border-color:rgba(184,232,247,.24)!important
+}
+
+/* Light Ocean Glass: keep the same depth and material, with readable ink. */
+body.light{
+ --oh-ios-glass-soft:rgba(255,255,255,.52);
+ --oh-ios-glass-raised:rgba(255,255,255,.72);
+ --oh-ios-glass-edge:rgba(20,113,145,.22);
+ --oh-ios-glass-edge-hot:rgba(10,144,166,.42);
+ --oh-ios-glass-shadow:0 20px 54px rgba(35,104,137,.13),inset 0 1px 0 rgba(255,255,255,.86);
+ --oh-ios-glass-shadow-raised:0 26px 70px rgba(35,104,137,.19),inset 0 1px 0 rgba(255,255,255,.94)
+}
+body.light :where(.card,.panel,.tile,.srv,.modal,.modal-content,.modal-box,.auth-card,.terms-box,.form-card,.content-card,.stat-card,.dashboard-card,.key-card,.chat-panel,.settings-card,.profile-card,.notification-card,.box,.glass,.glass-card,.section-card,.service-card,.product-card,.payment-card,.section,.drawer,.composer,.empty-card,.result,.dropdown-menu,.popover,.toast,.notification,.notification-item,.notification-toast,.alert-card,.context-menu,.command-menu,.sheet,.bottom-sheet,[role=dialog],[data-glass="panel"]){
+ border-color:var(--oh-ios-glass-edge)!important;
+ background:linear-gradient(145deg,rgba(255,255,255,.84),rgba(225,247,255,.70))!important;
+ box-shadow:var(--oh-ios-glass-shadow)!important;
+ color:#092c42!important
+}
+body.light :where(nav,.nav,.navbar,.sidebar,.topbar,header.site-header,footer.site-footer,[role=navigation],[data-glass="navigation"]){
+ background:linear-gradient(155deg,rgba(255,255,255,.90),rgba(225,247,255,.78))!important;
+ border-color:rgba(20,113,145,.20)!important;
+ box-shadow:0 18px 48px rgba(35,104,137,.12),inset 0 1px 0 rgba(255,255,255,.96)!important
+}
+body.light :where(nav a,.nav a,.navbar a,.sidebar a,header.site-header a,[role=navigation] a){color:#124b68!important}
+body.light :where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a)[aria-current=page],
+body.light :where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a).active,
+body.light :where(nav a,.nav a,.navbar a,.sidebar a,[role=navigation] a).is-active{
+ background:linear-gradient(115deg,rgba(46,190,194,.19),rgba(85,143,237,.13))!important;
+ color:#08364d!important
+}
+body.light :where(button,.btn,input[type=submit],input[type=button],input[type=reset],a.button,.button,[role=button]):not(.danger):not(.btn-danger):not(.danger-btn):not([data-danger="true"]){
+ background:linear-gradient(155deg,rgba(255,255,255,.80),rgba(217,244,252,.64))!important;
+ border-color:rgba(22,119,150,.25)!important;
+ color:#0a3a53!important;
+ box-shadow:0 9px 22px rgba(35,104,137,.11),inset 0 1px 0 rgba(255,255,255,.96)!important
+}
+body.light :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),select,textarea){
+ background:rgba(255,255,255,.72)!important;color:#092c42!important;border-color:rgba(20,113,145,.24)!important
+}
+body.light :where(input,textarea)::placeholder{color:#537b8e!important}
+body.light :where(.badge,.pill,.tag,.chip,.status,.status-badge){color:#14526b!important;border-color:rgba(20,113,145,.20)!important}
+
+/* Fine motion is optional; glass remains fully legible without supported blur. */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+ :where(.card,.panel,.tile,.modal,.auth-card,.content-card,.dashboard-card,.profile-card,.notification-card,.dropdown-menu,.popover,.toast,[role=dialog]){
+  background:rgba(8,34,54,.97)!important
+ }
+ body.light :where(.card,.panel,.tile,.modal,.auth-card,.content-card,.dashboard-card,.profile-card,.notification-card,.dropdown-menu,.popover,.toast,[role=dialog]){
+  background:rgba(245,252,255,.98)!important
+ }
+}
+@media(hover:hover) and (pointer:fine){
+ :where(.card,.panel,.tile,.content-card,.stat-card,.dashboard-card,.profile-card,.product-card,.glass-card,.notification-card,.toast):hover{
+  border-color:var(--oh-ios-glass-edge-hot)!important;
+  box-shadow:var(--oh-ios-glass-shadow-raised)!important;
+  transform:translateY(-2px)
+ }
+}
+@media(max-width:760px){
+ body{background-attachment:scroll!important}
+ :root{--oh-ios-glass-blur:22px;--oh-ios-glass-radius:21px}
+ :where(.card,.panel,.tile,.content-card,.stat-card,.dashboard-card,.profile-card,.product-card,.glass-card,.notification-card,.toast){border-radius:21px!important}
+ :where(nav,.nav,.navbar,.sidebar,.topbar,[role=navigation]){backdrop-filter:blur(22px) saturate(160%)!important;-webkit-backdrop-filter:blur(22px) saturate(160%)!important}
+ :where(button,.btn,a.button,.button,[role=button]){min-height:46px}
+}
+@media(prefers-reduced-motion:reduce){
+ body::before{animation:none!important}
+ :where(button,.btn,a.button,.button,[role=button],nav a,.nav a,.navbar a,.sidebar a){transition:none!important}
+ :where(.card,.panel,.tile,.content-card,.stat-card,.dashboard-card,.profile-card,.product-card,.glass-card,.notification-card,.toast){transition:none!important;transform:none!important}
+}
+@media(prefers-contrast:more){
+ :root{--oh-ios-glass-edge:rgba(203,249,255,.48)}
+ :where(.muted,.subtitle,.hint,.description,.secondary-text){color:#c4e0ea!important}
+ :where(button,.btn,a.button,.button,[role=button]):focus-visible,
+ :where(input,select,textarea):focus-visible{outline:3px solid #d7ffff!important}
+}
+@media(forced-colors:active){
+ :where(button,.btn,input,select,textarea,a,[role=button]){forced-color-adjust:auto}
+ :where(button,.btn,a.button,.button,[role=button]):focus-visible,
+ :where(input,select,textarea):focus-visible{outline:2px solid Highlight!important}
+}
+
 </style>`;
 
 export function injectOceanLiquidGlassTheme(html) {
