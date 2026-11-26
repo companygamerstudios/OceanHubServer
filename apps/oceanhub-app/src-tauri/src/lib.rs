@@ -49,6 +49,7 @@ fn install_windows_tray(app: &mut tauri::App) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .plugin(startup_splash_plugin())
         .plugin(tauri_plugin_notification::init());
 
     #[cfg(mobile)]
@@ -69,4 +70,11 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("OceanHub application failed to start");
+}
+
+
+fn startup_splash_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("oceanhub-startup-splash")
+        .js_init_script(include_str!("../loading-splash.js"))
+        .build()
 }
