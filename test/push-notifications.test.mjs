@@ -4,6 +4,8 @@ import { webcrypto } from "node:crypto";
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
+import { KVLocker } from "../OceanHub_SECURITY_PATCHED_FINAL_v18.js";
+
 import {
   decryptPushToken,
   encryptPushToken,
@@ -266,6 +268,13 @@ test("missing Firebase web config fails closed without returning a broken servic
   assert.equal(response.status, 503);
 });
 
+
+test("the account Durable Object responds to Windows push heartbeats", () => {
+  const locker = new KVLocker({});
+  let sent = null;
+  locker.webSocketMessage({ send(value) { sent = value; } }, JSON.stringify({ type: "ping" }));
+  assert.deepEqual(JSON.parse(sent), { type: "pong" });
+});
 
 test("Windows push dispatch publishes a sanitized event to the account Durable Object", async () => {
   const STATS = createKV();
