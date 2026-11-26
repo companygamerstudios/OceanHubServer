@@ -1,20 +1,6 @@
 name: Implementar comando
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "OceanHub_SECURITY_PATCHED_FINAL_v18.js"
-      - "ocean-suite.js"
-      - "download-center.js"
-      - "push-notifications.js"
-      - "push-client.js"
-      - "preflight_deploy_v18.mjs"
-      - "wrangler.production_v18.jsonc"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/deploy-production.yml"
   workflow_dispatch:
 
 permissions:
@@ -75,7 +61,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node preflight_deploy_v18.mjs production
 
-      - name: Publicar automáticamente en Cloudflare
+      - name: Publicar en Cloudflare tras ejecución manual autorizada
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
