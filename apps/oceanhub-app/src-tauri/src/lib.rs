@@ -62,6 +62,16 @@ pub fn run() {
             .build(),
     );
 
+    #[cfg(windows)]
+    let builder = builder.on_window_event(|window, event| {
+        if window.label() == "main" {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        }
+    });
+
     builder
         .setup(|app| {
             #[cfg(windows)]
