@@ -1,6 +1,6 @@
 [package]
 name = "oceanhub_app"
-version = "3.0.0"
+version = "3.0.2"
 description = "OceanHub Android mobile application"
 authors = ["COMPANY GAMER STUDIOS"]
 edition = "2021"
